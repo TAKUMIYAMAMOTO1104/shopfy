@@ -1,0 +1,4 @@
+product_id,sku,mode
+,SKU-001,archive
+,SKU-002,archive
+123456789,,delete

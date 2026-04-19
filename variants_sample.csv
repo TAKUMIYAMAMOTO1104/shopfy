@@ -1,0 +1,7 @@
+title,body_html,vendor,product_type,tags,status,option1_name,option1_value,option2_name,option2_value,option3_name,option3_value,price,compare_at_price,sku,barcode,inventory_quantity,inventory_policy,weight,weight_unit,image_url,image_alt_text,image_position
+バリアントTシャツ,<p>カラーとサイズを選べるTシャツです。</p>,サンプルブランド,Tシャツ,"cotton,summer",active,カラー,レッド,サイズ,S,,,2980,3980,TS-RED-S,,10,deny,0.3,kg,https://example.com/red.jpg,レッドTシャツ,1
+バリアントTシャツ,,,,,,カラー,レッド,サイズ,M,,,2980,3980,TS-RED-M,,20,deny,0.3,kg,,,
+バリアントTシャツ,,,,,,カラー,レッド,サイズ,L,,,2980,3980,TS-RED-L,,15,deny,0.3,kg,,,
+バリアントTシャツ,,,,,,カラー,ブルー,サイズ,S,,,2980,3980,TS-BLU-S,,12,deny,0.3,kg,https://example.com/blue.jpg,ブルーTシャツ,2
+バリアントTシャツ,,,,,,カラー,ブルー,サイズ,M,,,2980,3980,TS-BLU-M,,25,deny,0.3,kg,,,
+バリアントTシャツ,,,,,,カラー,ブルー,サイズ,L,,,2980,3980,TS-BLU-L,,18,deny,0.3,kg,,,

@@ -1,0 +1,4 @@
+product_id,sku,title,price,compare_at_price,inventory_quantity,status,tags,body_html
+,SKU-001,,2500,3980,,,sale,"<p>セール価格に変更しました。</p>"
+,SKU-002,新商品名B,5500,,,active,,
+123456789,,,1200,,,,,

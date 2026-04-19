@@ -1,4 +1,4 @@
-title,body_html,vendor,product_type,tags,price,compare_at_price,sku,inventory_quantity,weight,image_url
-サンプル商品A,<p>商品Aの詳細説明です。高品質な素材を使用しています。</p>,サンプルブランド,Tシャツ,"cotton,summer,sale",2980,4980,SKU-001,100,0.3,https://example.com/images/product-a.jpg
-サンプル商品B,<p>商品Bの詳細説明です。快適な着心地が特徴です。</p>,サンプルブランド,パンツ,"casual,spring",4980,,SKU-002,50,0.5,
-サンプル商品C,<p>商品Cの詳細説明です。限定デザインです。</p>,別ブランド,アクセサリー,"limited,gift",1500,2000,SKU-003,200,0.1,https://example.com/images/product-c.jpg
+title,body_html,vendor,product_type,tags,status,price,compare_at_price,sku,barcode,inventory_quantity,inventory_policy,weight,weight_unit,option1_name,option1_value,image_url,image_alt_text
+サンプル商品A,<p>商品Aの詳細説明です。高品質な素材を使用しています。</p>,サンプルブランド,Tシャツ,"cotton,summer,sale",active,2980,4980,SKU-001,4901234567890,100,deny,0.3,kg,,,https://example.com/images/product-a.jpg,商品A メイン画像
+サンプル商品B,<p>商品Bの詳細説明です。快適な着心地が特徴です。</p>,サンプルブランド,パンツ,"casual,spring",active,4980,,SKU-002,,50,deny,0.5,kg,,,,
+サンプル商品C,<p>商品Cの詳細説明です。限定デザインです。</p>,別ブランド,アクセサリー,"limited,gift",draft,1500,2000,SKU-003,,200,deny,0.1,kg,,,https://example.com/images/product-c.jpg,商品C メイン画像
