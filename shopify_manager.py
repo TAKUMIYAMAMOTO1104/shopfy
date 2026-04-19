@@ -50,7 +50,7 @@ def load_client() -> ShopifyClient:
 
 def cmd_create(args: argparse.Namespace) -> None:
     from commands.create import run_create
-    client = load_client()
+    client = None if args.dry_run else load_client()
     success, failed = run_create(
         args.csv_file,
         client,
@@ -63,7 +63,7 @@ def cmd_create(args: argparse.Namespace) -> None:
 
 def cmd_update(args: argparse.Namespace) -> None:
     from commands.update import run_update
-    client = load_client()
+    client = None if args.dry_run else load_client()
     success, failed = run_update(
         args.csv_file,
         client,
@@ -76,7 +76,7 @@ def cmd_update(args: argparse.Namespace) -> None:
 
 def cmd_delete(args: argparse.Namespace) -> None:
     from commands.delete import run_delete
-    client = load_client()
+    client = None if args.dry_run else load_client()
     success, failed = run_delete(
         args.csv_file,
         client,
@@ -89,7 +89,7 @@ def cmd_delete(args: argparse.Namespace) -> None:
 
 def cmd_sync_inventory(args: argparse.Namespace) -> None:
     from commands.sync_inventory import run_sync_inventory
-    client = load_client()
+    client = None if args.dry_run else load_client()
     success, failed = run_sync_inventory(
         args.csv_file,
         client,
