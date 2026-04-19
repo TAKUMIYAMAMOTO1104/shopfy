@@ -39,7 +39,11 @@ def _is_retryable(exc: BaseException) -> bool:
 
 class ShopifyClient:
     def __init__(self, shop_name: str, access_token: str):
-        self.base_url = f"https://{shop_name}.myshopify.com/admin/api/{API_VERSION}"
+        # フルドメイン (xxx.myshopify.com) でも受け付ける
+        host = shop_name.replace("https://", "").replace("http://", "").rstrip("/")
+        if not host.endswith(".myshopify.com"):
+            host = f"{host}.myshopify.com"
+        self.base_url = f"https://{host}/admin/api/{API_VERSION}"
         self.headers = {
             "X-Shopify-Access-Token": access_token,
             "Content-Type": "application/json",
