@@ -193,3 +193,13 @@ class ShopifyClient:
         return self._request(
             "GET", "inventory_levels.json", params={"inventory_item_ids": ids_str, "location_ids": str(location_id)}
         ).get("inventory_levels", [])
+
+    # ------------------------------------------------------------------ #
+    # 注文
+    # ------------------------------------------------------------------ #
+
+    def get_orders(self, since: str | None = None, status: str = "any") -> list[dict]:
+        params: dict = {"status": status, "limit": 250}
+        if since:
+            params["created_at_min"] = since
+        return self._paginate("orders.json", "orders", params)

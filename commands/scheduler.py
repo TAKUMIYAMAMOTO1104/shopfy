@@ -25,7 +25,9 @@ logger = setup_logger(__name__)
 TASKS = {
     "report": "在庫・売上レポートを生成してCSVに保存",
     "optimize-price": "在庫状況に応じて価格を自動調整",
-    "ai-generate": "未記入商品にAI説明文を自動生成",
+    "gen-product": "AIデジタル商品を自動生成してShopifyに登録",
+    "sns-post": "売れ筋商品をX(Twitter)に自動投稿",
+    "kpi": "売上KPIをダッシュボード表示",
 }
 
 
@@ -65,10 +67,14 @@ def _start_daemon() -> None:
     report_hour = int(os.getenv("SCHEDULE_REPORT_HOUR", "9"))
     optimize_day = os.getenv("SCHEDULE_OPTIMIZE_DAY", "monday")
 
+    sns_hour = int(os.getenv("SCHEDULE_SNS_HOUR", "12"))
+
     logger.info("スケジューラーを起動します。Ctrl+C で停止。")
     _print_tasks()
 
     schedule.every().day.at(f"{report_hour:02d}:00").do(_execute_task, "report")
+    schedule.every().day.at(f"{report_hour:02d}:30").do(_execute_task, "gen-product")
+    schedule.every().day.at(f"{sns_hour:02d}:00").do(_execute_task, "sns-post")
     getattr(schedule.every(), optimize_day).at("10:00").do(_execute_task, "optimize-price")
 
     while True:
@@ -100,6 +106,12 @@ def _execute_task(task_name: str) -> None:
             _run_report_task(client, ts)
         elif task_name == "optimize-price":
             _run_optimize_task(client)
+        elif task_name == "gen-product":
+            _run_gen_product_task(client)
+        elif task_name == "sns-post":
+            _run_sns_post_task(client)
+        elif task_name == "kpi":
+            _run_kpi_task(client, ts)
         else:
             logger.warning(f"未知のタスク: {task_name}")
     except Exception as e:
@@ -138,6 +150,37 @@ def _run_optimize_task(client) -> None:
         high_stock_discount=discount,
     )
     logger.info(f"[スケジューラー] 価格最適化完了: 成功={success}, 失敗={failed}")
+
+
+def _run_gen_product_task(client) -> None:
+    from commands.digital_product_gen import run_gen_product
+
+    batch = int(os.getenv("SCHEDULE_GEN_PRODUCT_BATCH", "1"))
+    product_type = os.getenv("SCHEDULE_GEN_PRODUCT_TYPE", "prompt_pack")
+
+    success, failed = run_gen_product(
+        client, batch=batch, product_type=product_type, dry_run=False
+    )
+    logger.info(f"[スケジューラー] 商品自動生成完了: 成功={success}, 失敗={failed}")
+
+
+def _run_sns_post_task(client) -> None:
+    from commands.sns_auto import run_sns_post
+
+    store_url = os.getenv("SHOPIFY_STORE_URL", "")
+    result = run_sns_post(daily=True, store_url=store_url, client=client, dry_run=False)
+    logger.info(f"[スケジューラー] SNS投稿完了: {'成功' if result else '失敗'}")
+
+
+def _run_kpi_task(client, ts: str) -> None:
+    from commands.kpi_dashboard import run_kpi_dashboard
+
+    output_dir = Path(os.getenv("SCHEDULE_REPORT_OUTPUT", "reports"))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = str(output_dir / f"kpi_{ts}.csv")
+
+    run_kpi_dashboard(client, period_days=30, output_path=output_path, use_ai=False)
+    logger.info(f"[スケジューラー] KPIレポート完了: {output_path}")
 
 
 def _day_ja(day: str) -> str:

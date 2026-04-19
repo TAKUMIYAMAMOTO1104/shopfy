@@ -178,6 +178,48 @@ def cmd_schedule(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_gen_product(args: argparse.Namespace) -> None:
+    from commands.digital_product_gen import run_gen_product
+    client = None if args.dry_run else load_client()
+    success, failed = run_gen_product(
+        client,
+        theme=args.theme,
+        product_type=args.type,
+        batch=args.batch,
+        dry_run=args.dry_run,
+        price=args.price,
+    )
+    sys.exit(1 if failed else 0)
+
+
+def cmd_sns_post(args: argparse.Namespace) -> None:
+    from commands.sns_auto import run_sns_post
+    import os
+    client = load_client() if (args.daily or args.product_id) else None
+    store_url = os.getenv("SHOPIFY_STORE_URL", "")
+    result = run_sns_post(
+        product_id=args.product_id,
+        theme=args.theme,
+        dry_run=args.dry_run,
+        daily=args.daily,
+        store_url=store_url,
+        client=client,
+    )
+    sys.exit(0 if result else 1)
+
+
+def cmd_kpi(args: argparse.Namespace) -> None:
+    from commands.kpi_dashboard import run_kpi_dashboard
+    client = load_client()
+    run_kpi_dashboard(
+        client,
+        period_days=args.period,
+        output_path=args.output,
+        use_ai=args.ai,
+    )
+    sys.exit(0)
+
+
 # ------------------------------------------------------------------ #
 # パーサー定義
 # ------------------------------------------------------------------ #
@@ -271,9 +313,37 @@ def build_parser() -> argparse.ArgumentParser:
     sched_group.add_argument("--start", action="store_true", help="スケジューラーをデーモン起動する")
     sched_group.add_argument("--list", action="store_true", help="登録済みタスク一覧を表示する")
     sched_group.add_argument("--run-now", metavar="TASK",
-                             choices=list({"report", "optimize-price", "ai-generate"}),
+                             choices=list({"report", "optimize-price", "gen-product", "sns-post", "kpi"}),
                              help="指定タスクを今すぐ実行する")
     p_sched.set_defaults(func=cmd_schedule)
+
+    # --- gen-product ---
+    p_gen = sub.add_parser("gen-product", help="AIでデジタル商品（プロンプト集・テンプレート）を自動生成・登録する")
+    p_gen.add_argument("--theme", metavar="THEME", help="商品テーマ (例: 'ChatGPT副業プロンプト集')")
+    p_gen.add_argument("--type", default="prompt_pack",
+                       choices=["prompt_pack", "template", "guide"],
+                       help="商品タイプ (デフォルト: prompt_pack)")
+    p_gen.add_argument("--batch", type=int, default=1, metavar="N", help="まとめて生成する商品数")
+    p_gen.add_argument("--price", type=int, metavar="YEN", help="価格を手動指定する (円)")
+    p_gen.add_argument("--dry-run", action="store_true", help="Shopifyに登録せず確認のみ")
+    p_gen.set_defaults(func=cmd_gen_product)
+
+    # --- sns-post ---
+    p_sns = sub.add_parser("sns-post", help="X(Twitter)に商品宣伝・教育コンテンツを自動投稿する")
+    sns_group = p_sns.add_mutually_exclusive_group(required=True)
+    sns_group.add_argument("--product-id", type=int, metavar="ID", help="投稿する商品ID")
+    sns_group.add_argument("--theme", metavar="THEME", help="テーマから教育コンテンツ型ツイートを生成")
+    sns_group.add_argument("--daily", action="store_true", help="売れ筋商品を自動選択して投稿")
+    p_sns.add_argument("--dry-run", action="store_true", help="投稿せずにツイート文を確認のみ")
+    p_sns.set_defaults(func=cmd_sns_post)
+
+    # --- kpi ---
+    p_kpi = sub.add_parser("kpi", help="売上KPIダッシュボードを表示する")
+    p_kpi.add_argument("--period", type=int, default=30, metavar="DAYS",
+                       help="集計期間（日数、デフォルト: 30）")
+    p_kpi.add_argument("--output", metavar="FILE", help="KPIデータをCSVに出力")
+    p_kpi.add_argument("--ai", action="store_true", help="AIによる改善提案を表示する")
+    p_kpi.set_defaults(func=cmd_kpi)
 
     return parser
 
