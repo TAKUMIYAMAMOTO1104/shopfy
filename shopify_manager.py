@@ -8,6 +8,14 @@ Shopify商品管理全自動化ツール
   python shopify_manager.py delete delete.csv   [--dry-run] [--force]
   python shopify_manager.py sync-inventory inventory.csv [--dry-run] [--location-id ID]
   python shopify_manager.py export --output export.csv [--status active] [--vendor ブランド名]
+
+  # AI自動化コマンド
+  python shopify_manager.py ai-generate products.csv [--dry-run] [--tags-only] [--desc-only] [--output-csv result.csv]
+  python shopify_manager.py report --output report.csv [--ai-summary] [--low-stock 5]
+  python shopify_manager.py optimize-price [--dry-run] [--ai] [--low-stock 5] [--high-stock 50]
+  python shopify_manager.py schedule --start
+  python shopify_manager.py schedule --list
+  python shopify_manager.py schedule --run-now report
 """
 
 import argparse
@@ -24,7 +32,6 @@ logger = setup_logger("shopify_manager")
 
 
 def load_client() -> ShopifyClient:
-    # SHOPIFY_STORE / SHOPIFY_TOKEN も別名として受け付ける
     shop_name = (
         os.getenv("SHOPIFY_SHOP_NAME")
         or os.getenv("SHOPIFY_STORE")
@@ -45,7 +52,7 @@ def load_client() -> ShopifyClient:
 
 
 # ------------------------------------------------------------------ #
-# サブコマンドハンドラ
+# 既存コマンドハンドラ
 # ------------------------------------------------------------------ #
 
 def cmd_create(args: argparse.Namespace) -> None:
@@ -115,6 +122,63 @@ def cmd_export(args: argparse.Namespace) -> None:
 
 
 # ------------------------------------------------------------------ #
+# AIコマンドハンドラ
+# ------------------------------------------------------------------ #
+
+def cmd_ai_generate(args: argparse.Namespace) -> None:
+    from commands.ai_generate import run_ai_generate
+    client = None if args.dry_run else load_client()
+    success, failed = run_ai_generate(
+        args.csv_file,
+        client,
+        dry_run=args.dry_run,
+        tags_only=args.tags_only,
+        desc_only=args.desc_only,
+        output_csv=args.output_csv,
+    )
+    sys.exit(1 if failed else 0)
+
+
+def cmd_report(args: argparse.Namespace) -> None:
+    from commands.report import run_report
+    client = load_client()
+    count = run_report(
+        args.output,
+        client,
+        ai_summary=args.ai_summary,
+        low_stock_threshold=args.low_stock,
+        status=args.status,
+    )
+    sys.exit(0 if count >= 0 else 1)
+
+
+def cmd_optimize_price(args: argparse.Namespace) -> None:
+    from commands.optimize_price import run_optimize_price
+    client = None if args.dry_run else load_client()
+    if args.dry_run:
+        client = load_client()
+    success, failed = run_optimize_price(
+        client,
+        dry_run=args.dry_run,
+        use_ai=args.ai,
+        low_stock=args.low_stock,
+        high_stock=args.high_stock,
+        low_stock_markup=args.markup,
+        high_stock_discount=args.discount,
+    )
+    sys.exit(1 if failed else 0)
+
+
+def cmd_schedule(args: argparse.Namespace) -> None:
+    from commands.scheduler import run_scheduler
+    run_scheduler(
+        start=args.start,
+        list_tasks=args.list,
+        run_now=args.run_now,
+    )
+
+
+# ------------------------------------------------------------------ #
 # パーサー定義
 # ------------------------------------------------------------------ #
 
@@ -166,6 +230,50 @@ def build_parser() -> argparse.ArgumentParser:
     p_export.add_argument("--vendor", metavar="VENDOR", help="ベンダーでフィルタリング")
     p_export.add_argument("--limit", type=int, metavar="N", help="取得する最大商品数")
     p_export.set_defaults(func=cmd_export)
+
+    # --- ai-generate ---
+    p_ai = sub.add_parser("ai-generate", help="AIで商品説明・SEOタグを自動生成する")
+    p_ai.add_argument("csv_file", help="商品データCSVファイルのパス")
+    p_ai.add_argument("--dry-run", action="store_true", help="Shopifyに書き込まず確認のみ")
+    p_ai.add_argument("--tags-only", action="store_true", help="タグのみ生成する")
+    p_ai.add_argument("--desc-only", action="store_true", help="商品説明のみ生成する")
+    p_ai.add_argument("--output-csv", metavar="FILE", help="生成結果を出力するCSVファイル")
+    p_ai.set_defaults(func=cmd_ai_generate)
+
+    # --- report ---
+    p_report = sub.add_parser("report", help="在庫・商品状況のレポートを生成する")
+    p_report.add_argument("--output", required=True, metavar="FILE", help="出力CSVファイルのパス")
+    p_report.add_argument("--ai-summary", action="store_true", help="AIによるサマリーテキストも生成する")
+    p_report.add_argument("--low-stock", type=int, default=5, metavar="N",
+                          help="低在庫と判定する閾値 (デフォルト: 5)")
+    p_report.add_argument("--status", default="any",
+                          choices=["any", "active", "draft", "archived"],
+                          help="フィルタリングするステータス")
+    p_report.set_defaults(func=cmd_report)
+
+    # --- optimize-price ---
+    p_opt = sub.add_parser("optimize-price", help="在庫状況に基づいて価格を自動最適化する")
+    p_opt.add_argument("--dry-run", action="store_true", help="変更せずに確認のみ")
+    p_opt.add_argument("--ai", action="store_true", help="AIによる価格提案を使用する")
+    p_opt.add_argument("--low-stock", type=int, default=5, metavar="N",
+                       help="低在庫閾値 (デフォルト: 5)")
+    p_opt.add_argument("--high-stock", type=int, default=50, metavar="N",
+                       help="高在庫閾値 (デフォルト: 50)")
+    p_opt.add_argument("--markup", type=float, default=0.10, metavar="RATE",
+                       help="低在庫時の値上げ率 (デフォルト: 0.10 = 10%%)")
+    p_opt.add_argument("--discount", type=float, default=0.10, metavar="RATE",
+                       help="高在庫時の値下げ率 (デフォルト: 0.10 = 10%%)")
+    p_opt.set_defaults(func=cmd_optimize_price)
+
+    # --- schedule ---
+    p_sched = sub.add_parser("schedule", help="自動タスクのスケジューラーを管理する")
+    sched_group = p_sched.add_mutually_exclusive_group(required=True)
+    sched_group.add_argument("--start", action="store_true", help="スケジューラーをデーモン起動する")
+    sched_group.add_argument("--list", action="store_true", help="登録済みタスク一覧を表示する")
+    sched_group.add_argument("--run-now", metavar="TASK",
+                             choices=list({"report", "optimize-price", "ai-generate"}),
+                             help="指定タスクを今すぐ実行する")
+    p_sched.set_defaults(func=cmd_schedule)
 
     return parser
 
