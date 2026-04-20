@@ -23,7 +23,7 @@ import webbrowser
 import requests
 from dotenv import load_dotenv, set_key
 
-SCOPES = "write_products,read_products"
+SCOPES = "write_products,read_products,write_inventory,read_inventory,read_orders"
 REDIRECT_PORT = 3000
 REDIRECT_URI = f"http://localhost:{REDIRECT_PORT}/callback"
 
