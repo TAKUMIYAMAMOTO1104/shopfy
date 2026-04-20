@@ -21,7 +21,7 @@ from dotenv import load_dotenv, set_key
 
 load_dotenv()
 
-SCOPES       = "write_products,read_products"
+SCOPES       = "write_products,read_products,write_inventory,read_inventory,read_orders"
 REDIRECT_URI = "https://example.com/callback"
 
 
