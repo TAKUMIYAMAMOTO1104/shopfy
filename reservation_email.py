@@ -173,7 +173,11 @@ def _safe_filename(r: Reservation, index: int) -> str:
     return f"{index:03d}_{safe}.eml"
 
 
-def send_via_smtp(msg: EmailMessage) -> None:
+def _open_smtp() -> tuple[smtplib.SMTP, str]:
+    """環境変数から SMTP サーバに接続・ログインし、(smtp, sender) を返す。
+
+    呼び出し側は複数件を送り終えたら smtp.quit() で閉じてください。
+    """
     host = os.environ.get("SMTP_HOST")
     port = int(os.environ.get("SMTP_PORT", "587"))
     user = os.environ.get("SMTP_USER")
@@ -183,12 +187,17 @@ def send_via_smtp(msg: EmailMessage) -> None:
         raise RuntimeError(
             "SMTP 送信には SMTP_HOST / SMTP_USER / SMTP_PASSWORD / SMTP_FROM の環境変数が必要です"
         )
+    smtp = smtplib.SMTP(host, port)
+    smtp.starttls()
+    smtp.login(user, password)
+    return smtp, sender
+
+
+def send_via_smtp(smtp: smtplib.SMTP, msg: EmailMessage, sender: str) -> None:
+    """既に接続済みの SMTP コネクションで 1 通送信する。"""
     if not msg["From"]:
         msg["From"] = sender
-    with smtplib.SMTP(host, port) as smtp:
-        smtp.starttls()
-        smtp.login(user, password)
-        smtp.send_message(msg)
+    smtp.send_message(msg)
 
 
 def _cli_row_from_args(args: argparse.Namespace) -> dict:
@@ -231,17 +240,22 @@ def _parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def _process_row(row: dict, index: int, out_dir: Path | None, send: bool) -> bool:
+def _process_row(
+    row: dict,
+    index: int,
+    out_dir: Path | None,
+    smtp: smtplib.SMTP | None,
+    smtp_sender: str | None,
+) -> bool:
     try:
         reservation = Reservation.from_dict(row)
     except ValueError as e:
         logger.error(f"[{index}] 入力エラー: {e}")
         return False
 
-    msg = build_email(reservation, sender=os.environ.get("SMTP_FROM"))
+    msg = build_email(reservation, sender=smtp_sender)
 
     if out_dir:
-        out_dir.mkdir(parents=True, exist_ok=True)
         path = out_dir / _safe_filename(reservation, index)
         path.write_bytes(bytes(msg))
         logger.info(f"[{index}] 書き出し: {path}")
@@ -252,9 +266,9 @@ def _process_row(row: dict, index: int, out_dir: Path | None, send: bool) -> boo
         print("-" * 60)
         print(msg.get_content())
 
-    if send:
+    if smtp is not None:
         try:
-            send_via_smtp(msg)
+            send_via_smtp(smtp, msg, smtp_sender or "")
             logger.info(f"[{index}] 送信成功: {reservation.customer_email}")
         except Exception as e:
             logger.error(f"[{index}] 送信失敗: {e}")
@@ -266,33 +280,52 @@ def main() -> int:
     load_dotenv()
     args = _parse_args()
     out_dir = Path(args.out_dir) if args.out_dir else None
+    if out_dir:
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-    if args.csv:
-        rows = read_csv(args.csv)
-        if not rows:
-            logger.error("CSV が空です")
+    # 送信するなら SMTP 接続を 1 回だけ開いてループで使い回す
+    smtp: smtplib.SMTP | None = None
+    smtp_sender: str | None = None
+    if args.send:
+        try:
+            smtp, smtp_sender = _open_smtp()
+        except Exception as e:
+            logger.error(f"SMTP 接続失敗: {e}")
             return 1
-        logger.info(f"{len(rows)}件の予約を処理します")
-        success, failed = 0, 0
-        for i, row in enumerate(rows, start=1):
-            if _process_row(row, i, out_dir, args.send):
-                success += 1
-            else:
-                failed += 1
-        logger.info(f"完了: 成功={success}件, 失敗={failed}件")
-        return 0 if failed == 0 else 1
 
-    missing = [f for f in REQUIRED_FIELDS if not getattr(args, f.replace("-", "_"), None)]
-    if missing:
-        logger.error(
-            "--csv を指定しない場合、以下の引数が必要です: "
-            + ", ".join("--" + f.replace("_", "-") for f in missing)
-        )
-        return 2
+    try:
+        if args.csv:
+            rows = read_csv(args.csv)
+            if not rows:
+                logger.error("CSV が空です")
+                return 1
+            logger.info(f"{len(rows)}件の予約を処理します")
+            success, failed = 0, 0
+            for i, row in enumerate(rows, start=1):
+                if _process_row(row, i, out_dir, smtp, smtp_sender):
+                    success += 1
+                else:
+                    failed += 1
+            logger.info(f"完了: 成功={success}件, 失敗={failed}件")
+            return 0 if failed == 0 else 1
 
-    row = _cli_row_from_args(args)
-    ok = _process_row(row, 1, out_dir, args.send)
-    return 0 if ok else 1
+        missing = [f for f in REQUIRED_FIELDS if not getattr(args, f, None)]
+        if missing:
+            logger.error(
+                "--csv を指定しない場合、以下の引数が必要です: "
+                + ", ".join("--" + f.replace("_", "-") for f in missing)
+            )
+            return 2
+
+        row = _cli_row_from_args(args)
+        ok = _process_row(row, 1, out_dir, smtp, smtp_sender)
+        return 0 if ok else 1
+    finally:
+        if smtp is not None:
+            try:
+                smtp.quit()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

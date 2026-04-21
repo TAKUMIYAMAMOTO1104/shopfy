@@ -96,7 +96,6 @@ python line_reservation.py --csv reservations.csv --send-test
 - reminder モードと組み合わせると、メッセージ本文はリマインド版になります。
   - `python line_reservation.py --mode reminder --test` … 明日予約のお客様への文面を確認
   - `python line_reservation.py --mode reminder --send-test` … 日付フィルタを無視して CSV 1 件目に実送信
-- 後方互換のため `--dry-run` も `--test` と同じ意味で引き続き使えます。
 
 ### 実際に送信（予約確認）
 
@@ -121,7 +120,7 @@ python line_reservation.py --mode reminder
 動作確認用に基準日を指定することもできます（`--target-date` の翌日が対象になります）。
 
 ```bash
-python line_reservation.py --mode reminder --target-date 2026-04-30 --dry-run
+python line_reservation.py --mode reminder --target-date 2026-04-30 --test
 ```
 
 ## 送信されるメッセージ
