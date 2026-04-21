@@ -1,0 +1,4 @@
+reservation_id,restaurant,restaurant_phone,restaurant_address,customer_name,customer_email,date,time,party_size,course,seat,notes,cancel_deadline
+R-20260501-0001,和食 さくら,03-1234-5678,東京都千代田区丸の内1-1-1,山田 太郎,taro@example.com,2026-05-01,19:00,4,季節のおまかせコース,個室,アレルギー: えび,2026-04-30 18:00
+R-20260502-0002,和食 さくら,03-1234-5678,東京都千代田区丸の内1-1-1,鈴木 花子,hanako@example.com,2026-05-02,18:30,2,,カウンター,記念日のためデザートプレートをお願いします,2026-05-01 12:00
+R-20260503-0003,和食 さくら,03-1234-5678,東京都千代田区丸の内1-1-1,佐藤 健,ken@example.com,2026-05-03,20:00,6,懐石コース,テーブル,,
