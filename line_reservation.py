@@ -12,12 +12,15 @@ CSV に書かれた予約情報を読み込み、LINE Messaging API の Push Mes
     # 1) 依存パッケージをインストール
     #    pip install -r requirements.txt
     # 2) .env に LINE_CHANNEL_ACCESS_TOKEN を設定
-    # 3) 実行（予約確認）
+    # 3) 本番実行（予約確認）
     #    python line_reservation.py
-    # 3') 実行（前日リマインダー）
+    # 3') 本番実行（前日リマインダー）
     #    python line_reservation.py --mode reminder
-    # 動作確認用に日付を指定したい場合
-    #    python line_reservation.py --mode reminder --target-date 2026-05-01
+
+    # テスト：送信予定メッセージを表示するだけ（実送信しない）
+    #    python line_reservation.py --csv reservations.csv --test
+    # テスト：CSV の 1 件目だけを実際に送信してみる
+    #    python line_reservation.py --csv reservations.csv --send-test
 """
 
 # 標準ライブラリ（Python に最初から入っている機能）をインポート
@@ -297,18 +300,41 @@ def main() -> int:
             "省略時は今日の日付（タスクスケジューラ運用時は省略推奨）。"
         ),
     )
-    parser.add_argument(
+    # --test と --send-test は排他的（同時指定を禁止）
+    test_group = parser.add_mutually_exclusive_group()
+    test_group.add_argument(
+        "--test",
+        action="store_true",
+        help=(
+            "テストモード: 実際には送信せず、送信予定のメッセージ内容を"
+            "コンソールに表示する（本番前の内容確認用）"
+        ),
+    )
+    test_group.add_argument(
+        "--send-test",
+        action="store_true",
+        help=(
+            "実送信テスト: CSV の 1 件目だけを実際に LINE 送信して"
+            "エンドツーエンドで動作確認する（要アクセストークン）"
+        ),
+    )
+    # 従来互換のため --dry-run も残す（--test と同じ動作）
+    test_group.add_argument(
         "--dry-run",
         action="store_true",
-        help="実際に送信せず、送信内容だけ表示する（動作確認用）",
+        help="--test と同じ（後方互換のため残しています）",
     )
     args = parser.parse_args()
+
+    # --dry-run を --test の別名として扱う
+    preview_only = args.test or args.dry_run
 
     logger = setup_logger()
 
     # 環境変数からアクセストークンを取得
+    # プレビューのみなら不要、それ以外（本番送信 / --send-test）なら必須
     access_token = os.environ.get("LINE_CHANNEL_ACCESS_TOKEN", "").strip()
-    if not access_token and not args.dry_run:
+    if not access_token and not preview_only:
         logger.error(
             "環境変数 LINE_CHANNEL_ACCESS_TOKEN が設定されていません。"
             " .env を確認してください。"
@@ -324,7 +350,8 @@ def main() -> int:
         return 1
 
     # reminder モードなら「翌日が予約日」のものだけに絞り込む
-    if args.mode == "reminder":
+    # ただし --send-test のときは日付フィルタを行わず CSV の 1 件目を使う
+    if args.mode == "reminder" and not args.send_test:
         # --target-date が指定されていればその日付、なければ今日を基準にする
         if args.target_date:
             try:
@@ -346,12 +373,24 @@ def main() -> int:
 
         # メッセージ生成関数を差し替え
         build_fn = build_reminder_message
+    elif args.mode == "reminder":
+        # --send-test 指定時は reminder 用のテンプレートを使う
+        build_fn = build_reminder_message
     else:
         build_fn = build_confirm_message
 
+    # --send-test: CSV の 1 件目だけ実送信（本番接続のエンドツーエンド確認用）
+    if args.send_test:
+        if not reservations:
+            logger.error("--send-test: CSV にデータがありません")
+            return 1
+        reservations = reservations[:1]
+        logger.info("--send-test: CSV の 1 件目のみを実際に送信します")
+
     total = len(reservations)
     logger.info(
-        f"{total}件の予約を処理します (mode={args.mode}, dry_run={args.dry_run})"
+        f"{total}件の予約を処理します "
+        f"(mode={args.mode}, test={preview_only}, send_test={args.send_test})"
     )
 
     # 対象 0 件のときは早めに終了（リマインダー運用で毎日 18 時に実行される想定）
@@ -378,17 +417,19 @@ def main() -> int:
         # メッセージを生成（モードに応じて confirm / reminder が切り替わる）
         message = build_fn(reservation)
 
-        # --dry-run モードは送信せずに内容だけ表示
-        if args.dry_run:
-            logger.info(f"[{index}/{total}] [DRY-RUN] 送信予定: {customer} ({user_id})")
+        # --test / --dry-run は送信せずに内容だけ表示
+        if preview_only:
+            logger.info(f"[{index}/{total}] [TEST] 送信予定: {customer} ({user_id})")
             logger.info("\n" + message)
             success_count += 1
             continue
 
         # 実際に送信。失敗しても次に進む（続行性を優先）
+        # --send-test のときは「1 件目だけ」なのでここを 1 回だけ通る
         try:
             send_line_message(access_token, user_id, message)
-            logger.info(f"[{index}/{total}] 送信成功: {customer} ({user_id})")
+            tag = "[SEND-TEST] " if args.send_test else ""
+            logger.info(f"[{index}/{total}] {tag}送信成功: {customer} ({user_id})")
             success_count += 1
         except Exception as e:
             # どんな例外でも拾って次の予約に進む

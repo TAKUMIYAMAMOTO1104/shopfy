@@ -74,14 +74,29 @@ LINE Messaging API で Push 送信する相手は、**あなたの LINE 公式�
 | 予約確認 (既定) | `python line_reservation.py`                 | CSV の全予約に予約確認メッセージを送信                     |
 | 前日リマインダー| `python line_reservation.py --mode reminder` | 「翌日が予約日」の予約にだけリマインドメッセージを送信     |
 
-### 送信内容を確認（ドライラン）
+### 本番運用前のテスト
 
-実際に送信せず、LINE に送られる内容だけを表示します。初めての動作確認におすすめ。
+本番送信する前に、以下 2 段階で動作確認することを推奨します。
+
+| フラグ         | 送信する？ | 範囲               | 目的                                             |
+| -------------- | ---------- | ------------------ | ------------------------------------------------ |
+| `--test`       | しない     | 全件               | 文面が意図通りか目視チェック（社内用確認）       |
+| `--send-test`  | する       | CSV の 1 件目のみ  | LINE API まで実際に疎通するかエンドツーエンド確認 |
 
 ```bash
-python line_reservation.py --dry-run
-python line_reservation.py --mode reminder --dry-run
+# ① 送信予定メッセージをコンソールに表示（実送信なし）
+python line_reservation.py --csv reservations.csv --test
+
+# ② CSV の 1 件目だけ実際に送信して疎通確認
+python line_reservation.py --csv reservations.csv --send-test
 ```
+
+- `--test` と `--send-test` は **同時指定できません**（argparse が拒否します）。
+- `--send-test` は本物のアクセストークンが必要です（`.env` を忘れずに）。
+- reminder モードと組み合わせると、メッセージ本文はリマインド版になります。
+  - `python line_reservation.py --mode reminder --test` … 明日予約のお客様への文面を確認
+  - `python line_reservation.py --mode reminder --send-test` … 日付フィルタを無視して CSV 1 件目に実送信
+- 後方互換のため `--dry-run` も `--test` と同じ意味で引き続き使えます。
 
 ### 実際に送信（予約確認）
 
