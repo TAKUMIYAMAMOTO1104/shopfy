@@ -67,15 +67,23 @@ LINE Messaging API で Push 送信する相手は、**あなたの LINE 公式�
 
 ## 使い方
 
+このツールには 2 つの送信モードがあります。
+
+| モード          | コマンド                                     | 送る内容                                                   |
+| --------------- | -------------------------------------------- | ---------------------------------------------------------- |
+| 予約確認 (既定) | `python line_reservation.py`                 | CSV の全予約に予約確認メッセージを送信                     |
+| 前日リマインダー| `python line_reservation.py --mode reminder` | 「翌日が予約日」の予約にだけリマインドメッセージを送信     |
+
 ### 送信内容を確認（ドライラン）
 
 実際に送信せず、LINE に送られる内容だけを表示します。初めての動作確認におすすめ。
 
 ```bash
 python line_reservation.py --dry-run
+python line_reservation.py --mode reminder --dry-run
 ```
 
-### 実際に送信
+### 実際に送信（予約確認）
 
 ```bash
 python line_reservation.py
@@ -87,7 +95,23 @@ python line_reservation.py
 python line_reservation.py --csv my_reservations.csv
 ```
 
+### 前日リマインダーの送信
+
+実行した日の **翌日** が予約日になっているお客様だけにリマインドを送ります。
+
+```bash
+python line_reservation.py --mode reminder
+```
+
+動作確認用に基準日を指定することもできます（`--target-date` の翌日が対象になります）。
+
+```bash
+python line_reservation.py --mode reminder --target-date 2026-04-30 --dry-run
+```
+
 ## 送信されるメッセージ
+
+### 予約確認（`--mode confirm`、既定）
 
 ```
 山田 太郎様
@@ -102,6 +126,99 @@ python line_reservation.py --csv my_reservations.csv
 ご来店をお待ちしております。
 ご不明な点は 03-1234-5678 までお気軽にご連絡ください。
 ```
+
+### 前日リマインダー（`--mode reminder`）
+
+```
+山田 太郎様
+
+明日のご予約のリマインドです。
+
+■ 日時：2026-05-01 19:00
+■ 人数：4名様
+■ 店舗：和食 さくら（03-1234-5678）
+
+ご来店をお待ちしております。
+キャンセル・変更の場合はお早めにご連絡ください。
+```
+
+## Windows タスクスケジューラで毎日 18 時に自動実行する
+
+前日リマインダーは、Windows のタスクスケジューラから毎日 18 時に
+`--mode reminder` で自動実行するのが想定運用です。
+
+### 手順
+
+1. **実行用のバッチファイルを作成**
+
+   スクリプトのあるフォルダ（例: `C:\shopfy`）に `send_reminder.bat` を作り、
+   以下を貼り付けます。パスは環境に合わせて書き換えてください。
+
+   ```bat
+   @echo off
+   REM 文字化け防止に UTF-8 に切り替え
+   chcp 65001 > nul
+
+   REM 作業ディレクトリを .py のあるフォルダに移動
+   cd /d C:\shopfy
+
+   REM Python で前日リマインダーを実行
+   python line_reservation.py --mode reminder >> logs\reminder_stdout.log 2>&1
+   ```
+
+   > venv を使っている場合は `python` の代わりに `C:\shopfy\.venv\Scripts\python.exe` のように
+   > 絶対パスを指定すると確実です。
+
+2. **タスクスケジューラを開く**
+
+   スタートメニューで「タスク スケジューラ」を検索して起動します。
+
+3. **タスクの作成**（「基本タスクの作成」ではなく「**タスクの作成**」を選ぶと細かい設定ができます）
+
+   - **[全般]** タブ
+     - 名前: `LINE 予約リマインダー`
+     - 「ユーザーがログオンしているかどうかにかかわらず実行する」にチェック
+     - 「最上位の特権で実行する」にチェック（推奨）
+   - **[トリガー]** タブ →「新規」
+     - 開始: **毎日 18:00**
+     - 間隔: 1 日
+     - 有効にチェック
+   - **[操作]** タブ →「新規」
+     - 操作: `プログラムの開始`
+     - プログラム/スクリプト: `C:\shopfy\send_reminder.bat`
+     - 開始（オプション）: `C:\shopfy` ← **必ず指定**（相対パス解決のため）
+   - **[条件]** タブ
+     - 「コンピューターを AC 電源で使用している場合のみタスクを開始する」のチェックは
+       必要に応じて外す（ノート PC で電源不安定な場合）
+   - **[設定]** タブ
+     - 「タスクを要求時に実行する」にチェック
+     - 「タスクが失敗した場合の再起動の間隔」を 10 分・3 回などに設定しておくと安心
+
+4. **動作テスト**
+
+   作成したタスクを右クリック →「**実行**」で即時起動できます。
+   `logs\line_reservation.log` と `logs\reminder_stdout.log` に出力が残ることを
+   確認してください。
+
+### PowerShell で一発登録したい場合（上級者向け）
+
+管理者権限の PowerShell で以下を実行すると、GUI を触らずに登録できます。
+
+```powershell
+$action   = New-ScheduledTaskAction -Execute "C:\shopfy\send_reminder.bat" -WorkingDirectory "C:\shopfy"
+$trigger  = New-ScheduledTaskTrigger -Daily -At 18:00
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 10)
+Register-ScheduledTask -TaskName "LINE 予約リマインダー" `
+    -Action $action -Trigger $trigger -Settings $settings -RunLevel Highest
+```
+
+### うまく動かないときのチェックリスト
+
+- [ ] バッチファイルを **手動でダブルクリック** して動くか確認した
+- [ ] タスクの「開始（オプション）」に作業フォルダを指定した
+- [ ] `.env` がスクリプトと同じフォルダにある
+- [ ] Python が PATH に通っているか、または絶対パスで指定している
+- [ ] `logs\reminder_stdout.log` にエラーが出ていないか確認した
 
 ## 動作の特徴
 

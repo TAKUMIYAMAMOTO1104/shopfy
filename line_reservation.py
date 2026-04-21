@@ -1,16 +1,23 @@
 """LINE 予約確認メッセージ自動送信スクリプト
 
 CSV に書かれた予約情報を読み込み、LINE Messaging API の Push Message API で
-お客様の LINE に予約確認メッセージを送信します。
+お客様の LINE にメッセージを送信します。
+
+2 つの送信モードがあります:
+    - confirm  : 予約確認メッセージを全件に送信（既定）
+    - reminder : 「翌日が予約日」のお客様にだけ前日リマインドを送信
+                 （Windows のタスクスケジューラから毎日 18 時に呼び出す想定）
 
 使い方:
     # 1) 依存パッケージをインストール
     #    pip install -r requirements.txt
     # 2) .env に LINE_CHANNEL_ACCESS_TOKEN を設定
-    # 3) 実行
+    # 3) 実行（予約確認）
     #    python line_reservation.py
-    #    （CSV ファイルを変更したい場合）
-    #    python line_reservation.py --csv my_reservations.csv
+    # 3') 実行（前日リマインダー）
+    #    python line_reservation.py --mode reminder
+    # 動作確認用に日付を指定したい場合
+    #    python line_reservation.py --mode reminder --target-date 2026-05-01
 """
 
 # 標準ライブラリ（Python に最初から入っている機能）をインポート
@@ -19,6 +26,7 @@ import csv       # CSV ファイルを読み書きするため
 import logging   # ログファイルに送信結果を記録するため
 import os        # 環境変数を読むため
 import sys       # 異常終了時に exit コードを返すため
+from datetime import date, datetime, timedelta  # 日付計算のため
 from pathlib import Path
 
 # 外部ライブラリ（requirements.txt でインストールするもの）
@@ -131,30 +139,86 @@ def validate_columns(rows: list[dict]) -> None:
 # メッセージ生成
 # ---------------------------------------------------------------
 
-def build_message(reservation: dict) -> str:
-    """予約情報 1 件分から、LINE に送るメッセージ本文を作って返す。"""
-    # dict.get(キー, "") で、値がなければ空文字になるようにしている
-    customer_name = reservation.get("顧客名", "").strip()
-    restaurant = reservation.get("店舗名", "").strip()
-    date = reservation.get("予約日", "").strip()
-    time = reservation.get("予約時間", "").strip()
-    party_size = reservation.get("人数", "").strip()
-    phone = reservation.get("電話番号", "").strip()
+def _extract_fields(reservation: dict) -> dict:
+    """予約 dict から本文生成で使う値だけを取り出し、前後の空白を削る。"""
+    # .get(キー, "") で、値がなければ空文字になるようにしている
+    return {
+        "customer_name": reservation.get("顧客名", "").strip(),
+        "restaurant": reservation.get("店舗名", "").strip(),
+        "reservation_date": reservation.get("予約日", "").strip(),
+        "reservation_time": reservation.get("予約時間", "").strip(),
+        "party_size": reservation.get("人数", "").strip(),
+        "phone": reservation.get("電話番号", "").strip(),
+    }
 
+
+def build_confirm_message(reservation: dict) -> str:
+    """予約確認メッセージの本文を作って返す。"""
+    f = _extract_fields(reservation)
     # 複数行の文字列は """...""" で書けます（f"""...""" で変数も埋め込めます）
-    message = f"""{customer_name}様
+    return f"""{f['customer_name']}様
 
 この度はご予約いただきありがとうございます。
 以下の内容でご予約を承りました。
 
-■ 店舗名：{restaurant}
-■ 日時：{date} {time}
-■ 人数：{party_size}名様
+■ 店舗名：{f['restaurant']}
+■ 日時：{f['reservation_date']} {f['reservation_time']}
+■ 人数：{f['party_size']}名様
 
 ご来店をお待ちしております。
-ご不明な点は {phone} までお気軽にご連絡ください。"""
+ご不明な点は {f['phone']} までお気軽にご連絡ください。"""
 
-    return message
+
+def build_reminder_message(reservation: dict) -> str:
+    """前日リマインダーメッセージの本文を作って返す。"""
+    f = _extract_fields(reservation)
+    return f"""{f['customer_name']}様
+
+明日のご予約のリマインドです。
+
+■ 日時：{f['reservation_date']} {f['reservation_time']}
+■ 人数：{f['party_size']}名様
+■ 店舗：{f['restaurant']}（{f['phone']}）
+
+ご来店をお待ちしております。
+キャンセル・変更の場合はお早めにご連絡ください。"""
+
+
+# 旧 API 互換用（外部から build_message を呼んでいるコードがあれば動くように残す）
+build_message = build_confirm_message
+
+
+# ---------------------------------------------------------------
+# リマインダー用の日付フィルタ
+# ---------------------------------------------------------------
+
+def _parse_reservation_date(value: str) -> date | None:
+    """予約日の文字列を date に変換する。
+
+    CSV でよく使われる以下のフォーマットを順に試します。
+    変換できなければ None（= リマインダー対象外）を返します。
+        2026-05-01 / 2026/05/01 / 2026.05.01
+    """
+    value = (value or "").strip()
+    if not value:
+        return None
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d"):
+        try:
+            return datetime.strptime(value, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def filter_tomorrow(reservations: list[dict], today: date) -> list[dict]:
+    """「翌日が予約日」の予約だけを抜き出して返す。"""
+    tomorrow = today + timedelta(days=1)
+    result: list[dict] = []
+    for r in reservations:
+        d = _parse_reservation_date(r.get("予約日", ""))
+        if d is not None and d == tomorrow:
+            result.append(r)
+    return result
 
 
 # ---------------------------------------------------------------
@@ -216,6 +280,24 @@ def main() -> int:
         help="予約情報が書かれた CSV ファイルのパス（既定: reservations.csv）",
     )
     parser.add_argument(
+        "--mode",
+        choices=["confirm", "reminder"],
+        default="confirm",
+        help=(
+            "送信モード: "
+            "confirm=予約確認を全件送信（既定）、"
+            "reminder=翌日予約のお客様にだけ前日リマインドを送信"
+        ),
+    )
+    parser.add_argument(
+        "--target-date",
+        help=(
+            "reminder モードの基準日 (YYYY-MM-DD)。"
+            "この日付の「翌日」が予約日の予約が送信対象になります。"
+            "省略時は今日の日付（タスクスケジューラ運用時は省略推奨）。"
+        ),
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="実際に送信せず、送信内容だけ表示する（動作確認用）",
@@ -241,8 +323,41 @@ def main() -> int:
         logger.error(f"CSV 読み込みエラー: {e}")
         return 1
 
+    # reminder モードなら「翌日が予約日」のものだけに絞り込む
+    if args.mode == "reminder":
+        # --target-date が指定されていればその日付、なければ今日を基準にする
+        if args.target_date:
+            try:
+                today = datetime.strptime(args.target_date, "%Y-%m-%d").date()
+            except ValueError:
+                logger.error(
+                    f"--target-date は YYYY-MM-DD 形式で指定してください: {args.target_date}"
+                )
+                return 1
+        else:
+            today = date.today()
+
+        tomorrow = today + timedelta(days=1)
+        reservations = filter_tomorrow(reservations, today)
+        logger.info(
+            f"リマインダー対象: {tomorrow.isoformat()} の予約 {len(reservations)}件"
+            f"（基準日: {today.isoformat()}）"
+        )
+
+        # メッセージ生成関数を差し替え
+        build_fn = build_reminder_message
+    else:
+        build_fn = build_confirm_message
+
     total = len(reservations)
-    logger.info(f"{total}件の予約を処理します (dry_run={args.dry_run})")
+    logger.info(
+        f"{total}件の予約を処理します (mode={args.mode}, dry_run={args.dry_run})"
+    )
+
+    # 対象 0 件のときは早めに終了（リマインダー運用で毎日 18 時に実行される想定）
+    if total == 0:
+        print("送信完了：0件")
+        return 0
 
     # 送信件数をカウントする変数
     success_count = 0
@@ -260,8 +375,8 @@ def main() -> int:
             failed_count += 1
             continue
 
-        # メッセージを生成
-        message = build_message(reservation)
+        # メッセージを生成（モードに応じて confirm / reminder が切り替わる）
+        message = build_fn(reservation)
 
         # --dry-run モードは送信せずに内容だけ表示
         if args.dry_run:
