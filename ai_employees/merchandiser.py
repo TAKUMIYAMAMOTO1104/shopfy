@@ -22,6 +22,7 @@ CSV_COLUMNS = [
 
 class Merchandiser(AIEmployee):
     JOB_TITLE = "マーチャンダイザー"
+    HANDLE = "@merchandiser"
 
     SYSTEM_PROMPT = """あなたは「BeautyTech Lab」のマーチャンダイザーです。
 リサーチ部長から提出された商品候補を、Shopifyに即時投入できる「売れる商品ページ」に仕上げる責務を負います。
@@ -81,21 +82,29 @@ class Merchandiser(AIEmployee):
       }
     }
   ],
-  "ceo_brief": "今回のラインナップの戦略的位置づけ (200字以内)"
+  "ceo_brief": "今回のラインナップの戦略的位置づけ (200字以内)",
+  "chat_post": {
+    "text": "@pricing 向けの新規SKU引き継ぎ含めたチャット発言 (150字以内)",
+    "mentions": ["@pricing"],
+    "kind": "handoff"
+  }
 }
 
-数値型は必ず数値で、HTMLは正しくエスケープすること。"""
+数値型は必ず数値で、HTMLは正しくエスケープすること。
+リサーチ部長から渡された商品で疑問があれば chat_post の kind を "concern" にして @researcher にメンションし返すこと。"""
 
     def run(
         self,
         candidates: dict[str, Any],
         out_dir: str = "data/csv_out",
+        workspace=None,
     ) -> EmployeeResult:
-        # リサーチ部長の出力をそのまま渡す
+        ctx = workspace.context_for(self.HANDLE) if workspace else ""
         prompt = (
             "以下のリサーチ部長の提出資料を元に、各候補商品について"
             "日本語版・英語版の商品ページデータをスキーマに沿って生成してください。\n\n"
-            f"```json\n{json.dumps(candidates, ensure_ascii=False)}\n```"
+            f"```json\n{json.dumps(candidates, ensure_ascii=False)}\n```\n\n"
+            f"【ワークスペース・コンテキスト】\n{ctx}"
         )
         result = self._ask(prompt, max_tokens=8000)
 
@@ -108,6 +117,8 @@ class Merchandiser(AIEmployee):
         self._write_csv(en_path, result.output.get("products", []), market="en")
         result.notes.append(f"日本語CSV: {jp_path}")
         result.notes.append(f"英語CSV: {en_path}")
+        if workspace is not None:
+            self._post_chat_from_output(workspace, result.output)
         return result
 
     @staticmethod
@@ -204,6 +215,11 @@ class Merchandiser(AIEmployee):
         sim = {
             "products": products_out,
             "ceo_brief": "(SIMULATION) 全候補について日英両市場向けのページデータを生成。即出品可能。",
+            "chat_post": {
+                "text": f"@pricing 新規{len(products_out)}SKUの日英ページ作成完了。初期価格はリサーチ案踏襲、補正があれば指摘頼む。",
+                "mentions": ["@pricing"],
+                "kind": "handoff",
+            },
         }
         return EmployeeResult(
             employee=self.JOB_TITLE,

@@ -56,16 +56,39 @@ class EmployeeResult:
         return round(usd * 155.0, 2)
 
 
+COWORK_PROTOCOL = """
+【コワーキング規約 (全AI従業員共通)】
+あなたは一人で働いているのではない。同じワークスペースに同僚AIがいる。
+仕事の前にコンテキスト(ホワイトボード・あなた宛のinbox・直近のチームチャット)を必ず読む。
+仕事を終えたら必ず1メッセージをチームチャットに残すこと。
+
+メッセージ作法:
+- 端的に。1〜3文。冗長な丁寧語は不要。
+- 同僚に振る作業は @<handle> でメンション (@ceo, @researcher, @merchandiser, @pricing, @cfo)
+- 引き継ぎは kind="handoff"、懸念は "concern"、雑談は "message"
+- 上司にも遠慮なく異論を出してよい。ただし根拠を添える。
+
+各従業員の出力JSONには必ず以下のフィールドを含める:
+  "chat_post": {
+    "text": "チャットへの投稿本文",
+    "mentions": ["@ceo", "@merchandiser"] や [],
+    "kind": "message" | "handoff" | "concern" | "standup" | "sign_off"
+  }
+"""
+
+
 class AIEmployee:
     """AI従業員の基底クラス。
 
     継承クラスは下記をオーバーライドする:
       - JOB_TITLE: 役職名 (ログ用)
+      - HANDLE: チャット内ハンドル (@xxx 形式)
       - SYSTEM_PROMPT: 役割定義 (1024トークン以上推奨。キャッシュされる)
       - run(...): 業務実行ロジック
     """
 
     JOB_TITLE: str = "AI従業員"
+    HANDLE: str = "@employee"
     SYSTEM_PROMPT: str = "あなたはAI従業員です。"
 
     def __init__(self, model: str, simulation_mode: bool = False):
@@ -103,11 +126,11 @@ class AIEmployee:
         if self.simulation_mode:
             return self._simulated_response(user_prompt)
 
-        # システムプロンプトはキャッシュ対象 (役職定義は毎回同じため)
+        # システムプロンプトはキャッシュ対象 (役職定義 + 共通コワーク規約)
         system_blocks = [
             {
                 "type": "text",
-                "text": self.SYSTEM_PROMPT,
+                "text": self.SYSTEM_PROMPT + "\n\n" + COWORK_PROTOCOL,
                 "cache_control": {"type": "ephemeral"},
             }
         ]
@@ -165,6 +188,23 @@ class AIEmployee:
             if m:
                 return json.loads(m.group(0))
             raise
+
+    # ------------------------------------------------------------------ #
+    # コワーク: チャット投稿ヘルパー
+    # ------------------------------------------------------------------ #
+
+    def _post_chat_from_output(self, workspace, output: dict[str, Any]) -> None:
+        """LLM出力に含まれる chat_post を実際のチャットに反映する。"""
+        cp = output.get("chat_post") or {}
+        text = (cp.get("text") or "").strip()
+        if not text:
+            return
+        workspace.post(
+            sender=self.HANDLE,
+            text=text,
+            mentions=cp.get("mentions") or [],
+            kind=cp.get("kind") or "message",
+        )
 
     # ------------------------------------------------------------------ #
     # シミュレーション応答 (継承先で具体化)

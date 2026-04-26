@@ -22,8 +22,11 @@ budget_allocation:
   inventory_jpy: 30000
   api_and_ops_jpy: 10000
 
-# AI従業員の編成
+# AI従業員の編成 (コワーキング型: 全員が共有チャットに参加する)
 employees:
+  ceo:
+    title: "CEO"
+    model: "claude-sonnet-4-6"
   researcher:
     title: "リサーチ部長"
     model: "claude-sonnet-4-6"
@@ -43,6 +46,7 @@ operations:
   reports_dir: "data/reports"
   csv_out_dir: "data/csv_out"
   state_file: "data/state.json"
+  cowork_dir: "data/cowork"
   # 本番Shopifyに接続せず、CSV/レポート生成だけ行うモード
   # 初回はtrueで安全運転、本番化はfalseに切替
   simulation_mode: true

@@ -9,4 +9,8 @@ data/state.json
 data/candidates/*.json
 data/reports/*.json
 data/csv_out/*.csv
+data/cowork/chat_log.jsonl
+data/cowork/whiteboard.md
+data/cowork/inbox/*.jsonl
+data/cowork/daily_log/*.jsonl
 !data/.gitkeep

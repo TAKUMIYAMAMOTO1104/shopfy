@@ -12,6 +12,7 @@ from ai_employees.base import AIEmployee, EmployeeResult
 
 class Researcher(AIEmployee):
     JOB_TITLE = "リサーチ部長"
+    HANDLE = "@researcher"
 
     SYSTEM_PROMPT = """あなたは年商50億円のグローバルEC企業「BeautyTech Lab」のリサーチ部長です。
 CEOはジョブズ氏。あなたの直属の上司です。
@@ -68,7 +69,12 @@ CEOはジョブズ氏。あなたの直属の上司です。
     }
   ],
   "top_pick_code": "最も推奨する商品のinternal_code",
-  "ceo_brief": "CEO向け200字以内のサマリー (日本語)"
+  "ceo_brief": "CEO向け200字以内のサマリー (日本語)",
+  "chat_post": {
+    "text": "@merchandiser へのハンドオフ込みのチャット発言 (150字以内)",
+    "mentions": ["@merchandiser"],
+    "kind": "handoff"
+  }
 }
 
 数値は必ず数値型で出力すること(文字列禁止)。"""
@@ -78,16 +84,19 @@ CEOはジョブズ氏。あなたの直属の上司です。
         n_products: int = 5,
         avoid_codes: list[str] | None = None,
         out_dir: str = "data/candidates",
+        workspace=None,
     ) -> EmployeeResult:
         avoid_codes = avoid_codes or []
         avoid_text = (
             f"\n既出のため除外する社内コード: {', '.join(avoid_codes)}"
             if avoid_codes else ""
         )
+        ctx = workspace.context_for(self.HANDLE) if workspace else ""
         prompt = (
             f"本日({datetime.now():%Y-%m-%d})時点での商品候補を{n_products}件、"
             f"上記スキーマに従って提出してください。"
-            f"{avoid_text}"
+            f"{avoid_text}\n\n"
+            f"【ワークスペース・コンテキスト】\n{ctx}"
         )
         result = self._ask(prompt, max_tokens=6000)
 
@@ -99,6 +108,8 @@ CEOはジョブズ氏。あなたの直属の上司です。
             encoding="utf-8",
         )
         result.notes.append(f"候補リストを保存: {out_path}")
+        if workspace is not None:
+            self._post_chat_from_output(workspace, result.output)
         return result
 
     # シミュレーション応答 (Claude APIなしで動作確認するため)
@@ -188,7 +199,12 @@ CEOはジョブズ氏。あなたの直属の上司です。
                 }
             ],
             "top_pick_code": "BTL-002",
-            "ceo_brief": "(SIMULATION) 利益率と物流容易性に優れるBTL-002を主軸に、トレンド性のあるBTL-001を集客導線として展開推奨。"
+            "ceo_brief": "(SIMULATION) 利益率と物流容易性に優れるBTL-002を主軸に、トレンド性のあるBTL-001を集客導線として展開推奨。",
+            "chat_post": {
+                "text": "5商品リサーチ完了。@merchandiser top_pickはBTL-002 (Knead Mini)、粗利4.5倍。BTL-001は電池規制注意、説明文で配慮を。",
+                "mentions": ["@merchandiser"],
+                "kind": "handoff"
+            }
         }
         return EmployeeResult(
             employee=self.JOB_TITLE,

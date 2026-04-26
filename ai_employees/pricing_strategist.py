@@ -13,6 +13,7 @@ from ai_employees.base import AIEmployee, EmployeeResult
 
 class PricingStrategist(AIEmployee):
     JOB_TITLE = "価格戦略担当"
+    HANDLE = "@pricing"
 
     SYSTEM_PROMPT = """あなたは「BeautyTech Lab」の価格戦略担当です。
 日次の売上・在庫データを見て、各SKUの価格を最適化する責務を負います。
@@ -44,7 +45,12 @@ class PricingStrategist(AIEmployee):
       "discount_pct": -10〜+10
     }
   ],
-  "summary": "今日の価格調整サマリー (3文以内・日本語)"
+  "summary": "今日の価格調整サマリー (3文以内・日本語)",
+  "chat_post": {
+    "text": "値付け判断のチャット発言 (120字以内・@cfo にメンション、根拠が薄い案には @merchandiser に concern を返してもよい)",
+    "mentions": ["@cfo"],
+    "kind": "message"
+  }
 }
 
 数値は数値型で出すこと。"""
@@ -53,11 +59,14 @@ class PricingStrategist(AIEmployee):
         self,
         sales_snapshot: list[dict[str, Any]],
         out_dir: str = "data/csv_out",
+        workspace=None,
     ) -> EmployeeResult:
+        ctx = workspace.context_for(self.HANDLE) if workspace else ""
         prompt = (
             "本日の売上・在庫スナップショットを以下に共有します。"
             "上記ルールに従って各SKUの価格判断を出してください。\n\n"
-            f"```json\n{json.dumps(sales_snapshot, ensure_ascii=False)}\n```"
+            f"```json\n{json.dumps(sales_snapshot, ensure_ascii=False)}\n```\n\n"
+            f"【ワークスペース・コンテキスト】\n{ctx}"
         )
         result = self._ask(prompt, max_tokens=4000)
 
@@ -84,6 +93,8 @@ class PricingStrategist(AIEmployee):
             result.notes.append(f"価格更新CSV: {path} ({len(decisions)}件)")
         else:
             result.notes.append("価格調整対象なし(全SKU据え置き)")
+        if workspace is not None:
+            self._post_chat_from_output(workspace, result.output)
         return result
 
     def _simulated_response(self, user_prompt: str) -> EmployeeResult:
@@ -127,6 +138,11 @@ class PricingStrategist(AIEmployee):
         sim = {
             "decisions": decisions,
             "summary": f"(SIMULATION) {n_change}件の価格調整を提案。残りは据え置き。",
+            "chat_post": {
+                "text": f"@cfo 価格判断完了: 調整{n_change}件・据置{len(decisions)-n_change}件。原価割れなし、ルール通り。",
+                "mentions": ["@cfo"],
+                "kind": "message",
+            },
         }
         return EmployeeResult(
             employee=self.JOB_TITLE,

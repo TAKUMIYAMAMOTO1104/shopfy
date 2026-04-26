@@ -12,6 +12,7 @@ from ai_employees.base import AIEmployee, EmployeeResult
 
 class CFO(AIEmployee):
     JOB_TITLE = "CFO"
+    HANDLE = "@cfo"
 
     SYSTEM_PROMPT = """あなたは「BeautyTech Lab」のCFOです。
 オーナー(ビジネスオーナー)は超多忙のため、あなたが書く日次レポートに人生の意思決定の一部を委ねています。
@@ -53,17 +54,25 @@ class CFO(AIEmployee):
     "cash_runway_days": 数値
   },
   "top_sellers": ["SKU1", "SKU2", "SKU3"],
-  "underperformers": ["SKU1", "SKU2", "SKU3"]
+  "underperformers": ["SKU1", "SKU2", "SKU3"],
+  "chat_post": {
+    "text": "今日のチームへの財務サマリー発言 (120字以内、必要なら @ceo にエスカレ)",
+    "mentions": [],
+    "kind": "message"
+  }
 }"""
 
     def run(
         self,
         business_state: dict[str, Any],
         out_dir: str = "data/reports",
+        workspace=None,
     ) -> EmployeeResult:
+        ctx = workspace.context_for(self.HANDLE) if workspace else ""
         prompt = (
             "本日の経営データを共有します。スキーマに沿った日次レポートを出してください。\n\n"
-            f"```json\n{json.dumps(business_state, ensure_ascii=False)}\n```"
+            f"```json\n{json.dumps(business_state, ensure_ascii=False)}\n```\n\n"
+            f"【ワークスペース・コンテキスト】\n{ctx}"
         )
         result = self._ask(prompt, max_tokens=2000)
 
@@ -75,6 +84,8 @@ class CFO(AIEmployee):
             encoding="utf-8",
         )
         result.notes.append(f"レポート保存: {path}")
+        if workspace is not None:
+            self._post_chat_from_output(workspace, result.output)
         return result
 
     def _simulated_response(self, user_prompt: str) -> EmployeeResult:
@@ -118,6 +129,11 @@ class CFO(AIEmployee):
             },
             "top_sellers": state.get("top_sellers", []),
             "underperformers": state.get("underperformers", []),
+            "chat_post": {
+                "text": f"本日: {headline}。{warn}。",
+                "mentions": ["@ceo"] if revenue == 0 else [],
+                "kind": "message",
+            },
         }
         return EmployeeResult(
             employee=self.JOB_TITLE,

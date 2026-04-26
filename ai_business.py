@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""AI自律型ECビジネス・コマンドラインツール。
+"""AI自律型ECビジネス・コマンドラインツール (コワーキング版)。
 
-オーナーが叩く窓口。CEO Jobs(オーケストレーター)がAI従業員4名に指示を出し、
-1日分の経営サイクルを自動実行する。
+オーナーが叩く窓口。CEO Jobs と AI従業員4名が共有チャットで会話・引き継ぎ・
+指摘し合いながら1日分の経営サイクルを自走する。
 
 使い方:
   python ai_business.py init           # ビジネス状態を初期化
@@ -10,7 +10,8 @@
   python ai_business.py merchandise    # マーチャンダイザーにCSVを作らせる
   python ai_business.py price          # 価格戦略担当に値付けさせる
   python ai_business.py report         # CFOに日次レポートを書かせる
-  python ai_business.py run-day        # 上記すべてを順に実行 (1日サイクル)
+  python ai_business.py run-day        # 朝会→各業務→終礼の全ターンを実行
+  python ai_business.py chat           # 本日の社内チャットをSlack風に表示
   python ai_business.py status         # 現在のビジネス状態を表示
 
 設定ファイル: config/business.yaml
@@ -28,7 +29,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from ai_employees import CFO, Merchandiser, PricingStrategist, Researcher
+from ai_employees import CEO, CFO, Merchandiser, PricingStrategist, Researcher, Workspace
 from utils.logger import setup_logger
 
 load_dotenv()
@@ -143,8 +144,37 @@ def _make_employee(cfg: dict, role_key: str, sim: bool):
         "merchandiser": Merchandiser,
         "pricing_strategist": PricingStrategist,
         "cfo": CFO,
+        "ceo": CEO,
     }
     return cls_map[role_key](model=role["model"], simulation_mode=sim)
+
+
+def _make_workspace(cfg: dict) -> Workspace:
+    root = cfg.get("operations", {}).get("cowork_dir", "data/cowork")
+    return Workspace(root=root)
+
+
+# Slack風表示用の色付け (端末対応)
+HANDLE_COLORS = {
+    "@ceo":          "\033[1;33m",   # bold yellow
+    "@researcher":   "\033[36m",     # cyan
+    "@merchandiser": "\033[32m",     # green
+    "@pricing":      "\033[35m",     # magenta
+    "@cfo":          "\033[34m",     # blue
+}
+RESET = "\033[0m"
+
+
+def _print_chat(messages: list[dict]) -> None:
+    if not messages:
+        print("(まだ発言なし)")
+        return
+    for m in messages:
+        color = HANDLE_COLORS.get(m["from"], "")
+        ts = m["ts"][-8:]
+        kind_tag = f"[{m['kind']}]"
+        mentions = " ".join(m["to"]) if m["to"] else ""
+        print(f"  {ts} {color}{m['from']:14}{RESET} {kind_tag:11} {mentions:20} {m['text']}")
 
 
 def _print_result(label: str, result) -> None:
@@ -184,19 +214,23 @@ def cmd_init(args, cfg):
     print(f"  状態ファイル: {state_path}")
 
 
-def cmd_research(args, cfg):
+def cmd_research(args, cfg, workspace=None):
     sim = cfg["operations"].get("simulation_mode", True)
     emp = _make_employee(cfg, "researcher", sim)
     state_path = Path(cfg["operations"]["state_file"])
     state = load_state(state_path)
     avoid = [s["internal_code"] for s in state.get("skus", [])]
     n = cfg["employees"]["researcher"]["products_per_run"]
-    result = emp.run(n_products=n, avoid_codes=avoid, out_dir=cfg["operations"]["candidates_dir"])
+    result = emp.run(
+        n_products=n, avoid_codes=avoid,
+        out_dir=cfg["operations"]["candidates_dir"],
+        workspace=workspace,
+    )
     _print_result("リサーチ実施", result)
     return result
 
 
-def cmd_merchandise(args, cfg):
+def cmd_merchandise(args, cfg, workspace=None):
     sim = cfg["operations"].get("simulation_mode", True)
     cand_dir = Path(cfg["operations"]["candidates_dir"])
     candidates_files = sorted(cand_dir.glob("*.json"))
@@ -205,7 +239,10 @@ def cmd_merchandise(args, cfg):
         sys.exit(1)
     candidates = json.loads(candidates_files[-1].read_text(encoding="utf-8"))
     emp = _make_employee(cfg, "merchandiser", sim)
-    result = emp.run(candidates=candidates, out_dir=cfg["operations"]["csv_out_dir"])
+    result = emp.run(
+        candidates=candidates, out_dir=cfg["operations"]["csv_out_dir"],
+        workspace=workspace,
+    )
 
     # SKUリストを状態に登録
     state_path = Path(cfg["operations"]["state_file"])
@@ -235,7 +272,7 @@ def cmd_merchandise(args, cfg):
     return result
 
 
-def cmd_price(args, cfg):
+def cmd_price(args, cfg, workspace=None):
     sim = cfg["operations"].get("simulation_mode", True)
     state_path = Path(cfg["operations"]["state_file"])
     state = load_state(state_path)
@@ -258,17 +295,23 @@ def cmd_price(args, cfg):
         print("価格判定対象のSKUがありません。先にmerchandiseを実行してください。")
         return
     emp = _make_employee(cfg, "pricing_strategist", sim)
-    result = emp.run(sales_snapshot=snapshot, out_dir=cfg["operations"]["csv_out_dir"])
+    result = emp.run(
+        sales_snapshot=snapshot, out_dir=cfg["operations"]["csv_out_dir"],
+        workspace=workspace,
+    )
     _print_result("価格戦略", result)
     return result
 
 
-def cmd_report(args, cfg):
+def cmd_report(args, cfg, workspace=None):
     sim = cfg["operations"].get("simulation_mode", True)
     state_path = Path(cfg["operations"]["state_file"])
     state = load_state(state_path)
     emp = _make_employee(cfg, "cfo", sim)
-    result = emp.run(business_state=state, out_dir=cfg["operations"]["reports_dir"])
+    result = emp.run(
+        business_state=state, out_dir=cfg["operations"]["reports_dir"],
+        workspace=workspace,
+    )
     _print_result("CFO日次レポート", result)
     out = result.output
     print("\n┌──────────  オーナー宛 3行レポート  ──────────")
@@ -280,15 +323,59 @@ def cmd_report(args, cfg):
 
 
 def cmd_run_day(args, cfg):
+    sim = cfg["operations"].get("simulation_mode", True)
+    workspace = _make_workspace(cfg)
+    workspace.reset_today()  # 新しいサイクル開始
+
+    # CEOモデル設定 (configに無ければSonnet 4.6既定)
+    cfg["employees"].setdefault("ceo", {"model": "claude-sonnet-4-6"})
+
     print("\n╔══════════════════════════════════════════════╗")
-    print(f"║  {cfg['business']['name']} - 1日サイクル実行  ║")
-    print(f"║  CEO: {cfg['business']['ceo_name']}                         ║")
+    print(f"║  {cfg['business']['name']} - コワーキング1日サイクル  ║")
+    print(f"║  CEO: {cfg['business']['ceo_name']} / 従業員4名 / 共有チャット稼働中  ║")
     print("╚══════════════════════════════════════════════╝")
-    cmd_research(args, cfg)
-    cmd_merchandise(args, cfg)
-    cmd_price(args, cfg)
-    cmd_report(args, cfg)
-    print("\n✓ 本日の自律経営サイクル完了。オーナー、よい一日を。 - Jobs")
+
+    ceo = _make_employee(cfg, "ceo", sim)
+
+    # ── 朝会 ──
+    print("\n── 朝会 (CEO Jobs) ──")
+    ceo.open_day(workspace)
+
+    # ── 業務 (リサーチ → 商品化 → 価格戦略) ──
+    cmd_research(args, cfg, workspace=workspace)
+    cmd_merchandise(args, cfg, workspace=workspace)
+    cmd_price(args, cfg, workspace=workspace)
+
+    # ── CFO 締め ──
+    cmd_report(args, cfg, workspace=workspace)
+
+    # ── CEO 終礼 ──
+    print("\n── 終礼 (CEO Jobs 総評) ──")
+    closing = ceo.close_day(workspace)
+    eval_lines = closing.output.get("evaluation_3_lines", [])
+    if eval_lines:
+        print("\n┌──── CEO 3行総評 ────")
+        for line in eval_lines:
+            print(f"│ {line}")
+        print("└─────────────────────")
+
+    # ── 本日のチャットを表示 ──
+    print("\n══════ 本日の社内チャット (Slack風) ══════")
+    _print_chat(workspace.today_chat())
+    print("\n✓ コワーキングサイクル完了。`python ai_business.py chat` でいつでも見返せます。")
+
+
+def cmd_chat(args, cfg):
+    """本日(または直近)の社内チャットを表示。"""
+    workspace = _make_workspace(cfg)
+    if args.all:
+        msgs = workspace.recent_chat(n=200)
+        title = "直近200発言"
+    else:
+        msgs = workspace.today_chat()
+        title = f"本日 ({datetime.now():%Y-%m-%d})"
+    print(f"\n══════ {cfg['business']['name']} 社内チャット - {title} ══════")
+    _print_chat(msgs)
 
 
 def cmd_status(args, cfg):
@@ -330,8 +417,12 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("merchandise", help="商品ページCSVを生成する").set_defaults(func=cmd_merchandise)
     sub.add_parser("price", help="価格戦略を実行する").set_defaults(func=cmd_price)
     sub.add_parser("report", help="日次レポートを生成する").set_defaults(func=cmd_report)
-    sub.add_parser("run-day", help="1日分のサイクルを順に実行").set_defaults(func=cmd_run_day)
+    sub.add_parser("run-day", help="朝会→業務→終礼までのコワーキング1日サイクル").set_defaults(func=cmd_run_day)
     sub.add_parser("status", help="ビジネス状態を表示").set_defaults(func=cmd_status)
+
+    p_chat = sub.add_parser("chat", help="社内チャットをSlack風に表示")
+    p_chat.add_argument("--all", action="store_true", help="本日に限らず直近200発言を表示")
+    p_chat.set_defaults(func=cmd_chat)
 
     return p
 
