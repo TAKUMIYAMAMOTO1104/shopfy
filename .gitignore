@@ -6,6 +6,7 @@ logs/
 
 # AIビジネス生成データ (ローカルでのみ蓄積、リポジトリには含めない)
 data/state.json
+data/cost_ledger.jsonl
 data/candidates/*.json
 data/reports/*.json
 data/csv_out/*.csv

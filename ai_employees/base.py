@@ -15,11 +15,45 @@ import json
 import os
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from utils.logger import setup_logger
 
 logger = setup_logger(__name__)
+
+# 月次APIコスト予算 (円)。超過すると新規API呼び出しを拒否する
+COST_LEDGER_PATH = Path("data/cost_ledger.jsonl")
+DEFAULT_MONTHLY_BUDGET_JPY = 10_000  # config/business.yaml の budget_allocation.api_and_ops_jpy 既定値
+
+
+def _read_monthly_cost_jpy(path: Path = COST_LEDGER_PATH) -> float:
+    """当月使用済みのAPIコスト合計 (円)。"""
+    if not path.exists():
+        return 0.0
+    ym = datetime.now().strftime("%Y-%m")
+    total = 0.0
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if row.get("ts", "").startswith(ym):
+            total += float(row.get("cost_jpy", 0))
+    return round(total, 2)
+
+
+def _append_ledger(entry: dict[str, Any], path: Path = COST_LEDGER_PATH) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+class BudgetExceededError(RuntimeError):
+    """月次API予算を超過した場合に投げる。CEOが運用を一時停止できる。"""
 
 
 @dataclass
@@ -91,9 +125,15 @@ class AIEmployee:
     HANDLE: str = "@employee"
     SYSTEM_PROMPT: str = "あなたはAI従業員です。"
 
-    def __init__(self, model: str, simulation_mode: bool = False):
+    def __init__(
+        self,
+        model: str,
+        simulation_mode: bool = False,
+        monthly_budget_jpy: float = DEFAULT_MONTHLY_BUDGET_JPY,
+    ):
         self.model = model
         self.simulation_mode = simulation_mode
+        self.monthly_budget_jpy = monthly_budget_jpy
         self._client = None
         if not simulation_mode:
             try:
@@ -125,6 +165,15 @@ class AIEmployee:
         """Claude APIに問い合わせ、JSON応答をパースして返す。"""
         if self.simulation_mode:
             return self._simulated_response(user_prompt)
+
+        # 予算ガード: 月次予算を超過していたら新規API呼び出しを拒否
+        used = _read_monthly_cost_jpy()
+        if used >= self.monthly_budget_jpy:
+            raise BudgetExceededError(
+                f"月次API予算超過: ¥{used:,.0f} / ¥{self.monthly_budget_jpy:,.0f}。"
+                f"config/business.yaml の budget_allocation.api_and_ops_jpy を上げるか、"
+                f"data/cost_ledger.jsonl を翌月1日に空にしてください。"
+            )
 
         # システムプロンプトはキャッシュ対象 (役職定義 + 共通コワーク規約)
         system_blocks = [
@@ -162,10 +211,21 @@ class AIEmployee:
             cache_write_tokens=getattr(usage, "cache_creation_input_tokens", 0) or 0,
             model=self.model,
         )
+        cost = result.cost_jpy_estimate()
+        _append_ledger({
+            "ts": datetime.now().isoformat(timespec="seconds"),
+            "employee": self.JOB_TITLE,
+            "model": self.model,
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
+            "cache_read_tokens": result.cache_read_tokens,
+            "cache_write_tokens": result.cache_write_tokens,
+            "cost_jpy": cost,
+        })
         logger.info(
             f"[{self.JOB_TITLE}] 完了 "
             f"(in={result.input_tokens}, out={result.output_tokens}, "
-            f"cache_read={result.cache_read_tokens}, ¥{result.cost_jpy_estimate()})"
+            f"cache_read={result.cache_read_tokens}, ¥{cost})"
         )
         return result
 

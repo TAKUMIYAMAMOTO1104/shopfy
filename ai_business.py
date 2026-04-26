@@ -5,6 +5,7 @@
 指摘し合いながら1日分の経営サイクルを自走する。
 
 使い方:
+  python ai_business.py doctor         # 環境診断 (本番化前に必ず実行)
   python ai_business.py init           # ビジネス状態を初期化
   python ai_business.py research       # リサーチ部長に商品候補を出させる
   python ai_business.py merchandise    # マーチャンダイザーにCSVを作らせる
@@ -29,7 +30,15 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from ai_employees import CEO, CFO, Merchandiser, PricingStrategist, Researcher, Workspace
+from ai_employees import (
+    CEO,
+    CFO,
+    Merchandiser,
+    PricingStrategist,
+    Researcher,
+    Workspace,
+    _read_monthly_cost_jpy,
+)
 from utils.logger import setup_logger
 
 load_dotenv()
@@ -146,7 +155,12 @@ def _make_employee(cfg: dict, role_key: str, sim: bool):
         "cfo": CFO,
         "ceo": CEO,
     }
-    return cls_map[role_key](model=role["model"], simulation_mode=sim)
+    monthly_budget = cfg.get("budget_allocation", {}).get("api_and_ops_jpy", 10_000)
+    return cls_map[role_key](
+        model=role["model"],
+        simulation_mode=sim,
+        monthly_budget_jpy=monthly_budget,
+    )
 
 
 def _make_workspace(cfg: dict) -> Workspace:
@@ -365,6 +379,105 @@ def cmd_run_day(args, cfg):
     print("\n✓ コワーキングサイクル完了。`python ai_business.py chat` でいつでも見返せます。")
 
 
+def cmd_doctor(args, cfg):
+    """環境を診断し、本番運用前のチェックリストを返す。"""
+    print("\n══════ 環境診断 (Doctor) ══════\n")
+    issues: list[str] = []
+    ok: list[str] = []
+
+    # 1. anthropic SDK
+    try:
+        import anthropic  # noqa: F401
+        ok.append("anthropic SDK: インストール済み")
+    except ImportError:
+        issues.append("anthropic SDK 未インストール → `pip install -r requirements.txt`")
+
+    # 2. PyYAML (config読み込み用)
+    try:
+        import yaml  # noqa: F401
+        ok.append("PyYAML: インストール済み")
+    except ImportError:
+        issues.append("PyYAML 未インストール → `pip install -r requirements.txt`")
+
+    # 3. .env
+    if Path(".env").exists():
+        ok.append(".env ファイル: 存在")
+    else:
+        issues.append(".env が無い → `cp .env.example .env` で雛形を作成し、APIキーを記入")
+
+    # 4. ANTHROPIC_API_KEY
+    key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+    if not key:
+        issues.append("ANTHROPIC_API_KEY 未設定 → .env に記入")
+    elif not key.startswith("sk-ant-"):
+        issues.append("ANTHROPIC_API_KEY 形式不正 (sk-ant- で始まるはず)")
+    else:
+        ok.append(f"ANTHROPIC_API_KEY: 設定済み (...{key[-4:]})")
+
+    # 5. Shopify認証 (任意・本番化時に必要)
+    shop = os.getenv("SHOPIFY_SHOP_NAME") or os.getenv("SHOPIFY_STORE")
+    token = os.getenv("SHOPIFY_ACCESS_TOKEN") or os.getenv("SHOPIFY_TOKEN")
+    if shop and token:
+        ok.append(f"Shopify認証: 設定済み (shop={shop})")
+    else:
+        ok.append("Shopify認証: 未設定 (シミュレーション中はOK・本番化時に必要)")
+
+    # 6. 設定ファイル
+    if Path("config/business.yaml").exists():
+        ok.append("config/business.yaml: 存在")
+    else:
+        issues.append("config/business.yaml が無い")
+
+    # 7. 月次API予算消化状況
+    used = _read_monthly_cost_jpy()
+    budget = cfg.get("budget_allocation", {}).get("api_and_ops_jpy", 10_000)
+    pct = round(used / budget * 100, 1) if budget else 0
+    bar = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
+    print(f"  月次API予算消化:  ¥{used:,.0f} / ¥{budget:,} ({pct}%)")
+    print(f"                    [{bar}]\n")
+    if used >= budget:
+        issues.append(f"月次予算超過 ¥{used:,.0f} ≥ ¥{budget:,} → API呼び出しがブロックされます")
+
+    # 8. シミュレーションフラグ
+    sim = cfg["operations"].get("simulation_mode", True)
+    if sim:
+        ok.append("simulation_mode: true (Claude API は呼ばれません)")
+    else:
+        ok.append("simulation_mode: false (本番モード・実APIコール)")
+
+    # 9. APIピング (キーが正しく入っていれば)
+    api_ping_ok = False
+    if key and key.startswith("sk-ant-") and not any("anthropic SDK" in i for i in issues):
+        try:
+            from anthropic import Anthropic
+            client = Anthropic(api_key=key)
+            resp = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=10,
+                messages=[{"role": "user", "content": "respond with 'pong'"}],
+            )
+            text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
+            ok.append(f"Claude API ping: 成功 (応答: {text.strip()[:30]!r})")
+            api_ping_ok = True
+        except Exception as e:
+            issues.append(f"Claude API ping 失敗: {e}")
+
+    # 結果
+    print("  ── OK ──")
+    for o in ok:
+        print(f"  ✓ {o}")
+    if issues:
+        print("\n  ── 要対処 ──")
+        for i in issues:
+            print(f"  ✗ {i}")
+        print("\n上記を解消後、再度 `python ai_business.py doctor` を実行してください。")
+        sys.exit(1)
+    else:
+        print("\n✓ 全チェックOK。本番運用OKです。")
+        if not sim and api_ping_ok:
+            print("  実Claudeで動かす準備完了 → `python ai_business.py run-day`")
+
+
 def cmd_chat(args, cfg):
     """本日(または直近)の社内チャットを表示。"""
     workspace = _make_workspace(cfg)
@@ -423,6 +536,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_chat = sub.add_parser("chat", help="社内チャットをSlack風に表示")
     p_chat.add_argument("--all", action="store_true", help="本日に限らず直近200発言を表示")
     p_chat.set_defaults(func=cmd_chat)
+
+    sub.add_parser("doctor", help="環境を診断 (本番運用前のチェックリスト)").set_defaults(func=cmd_doctor)
 
     return p
 

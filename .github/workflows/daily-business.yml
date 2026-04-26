@@ -1,0 +1,109 @@
+# =================================================================== #
+# AI自律型ECビジネス・毎日サイクル
+# =================================================================== #
+# 毎朝7:00 JST (= 22:00 UTC前日) に1日サイクルを実行する
+# - APIキーは GitHub Secrets で暗号化保管 (リポジトリには平文で残らない)
+# - 生成されたCSV・レポート・社内チャットログは Artifacts に7日保持
+# - 月次API予算超過時は base.py の BudgetExceededError で自動停止
+#
+# セットアップ手順:
+#   1. リポジトリの Settings > Secrets and variables > Actions で以下を登録:
+#      - ANTHROPIC_API_KEY  (必須)
+#      - SHOPIFY_SHOP_NAME    (本番化時)
+#      - SHOPIFY_ACCESS_TOKEN (本番化時)
+#   2. config/business.yaml の simulation_mode を false に変更
+#   3. mainブランチにマージするか、Actions タブから手動実行
+# =================================================================== #
+
+name: Daily Business Cycle
+
+on:
+  schedule:
+    # 毎日 22:00 UTC = 朝7:00 JST
+    - cron: '0 22 * * *'
+  workflow_dispatch:
+    inputs:
+      simulation_only:
+        description: 'シミュレーションモードで実行 (実APIコールしない)'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+permissions:
+  contents: read
+
+concurrency:
+  # 重複実行を防ぐ (同じ日に2回走らせない)
+  group: daily-business-cycle
+  cancel-in-progress: false
+
+jobs:
+  run-day:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Configure secrets into .env
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SHOPIFY_SHOP_NAME: ${{ secrets.SHOPIFY_SHOP_NAME }}
+          SHOPIFY_ACCESS_TOKEN: ${{ secrets.SHOPIFY_ACCESS_TOKEN }}
+        run: |
+          # ヒアドキュメントで誤マスキング回避、変数経由で書き込む
+          {
+            echo "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}"
+            echo "SHOPIFY_SHOP_NAME=${SHOPIFY_SHOP_NAME}"
+            echo "SHOPIFY_ACCESS_TOKEN=${SHOPIFY_ACCESS_TOKEN}"
+          } > .env
+          chmod 600 .env
+
+      - name: Optionally force simulation mode
+        if: ${{ github.event.inputs.simulation_only == 'true' }}
+        run: sed -i 's/simulation_mode: false/simulation_mode: true/' config/business.yaml
+
+      - name: Doctor check
+        run: python ai_business.py doctor
+
+      - name: Initialize state if first run
+        run: |
+          if [ ! -f data/state.json ]; then
+            python ai_business.py init
+          fi
+
+      - name: Run daily cycle (cowork)
+        run: python ai_business.py run-day
+
+      - name: Show today's chat
+        if: always()
+        run: python ai_business.py chat
+
+      - name: Upload daily artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-output-${{ github.run_id }}
+          retention-days: 7
+          path: |
+            data/reports/
+            data/csv_out/
+            data/cowork/daily_log/
+            data/state.json
+            data/cost_ledger.jsonl
+
+      - name: Cleanup .env
+        if: always()
+        run: rm -f .env
