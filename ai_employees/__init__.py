@@ -1,4 +1,4 @@
-"""AI従業員パッケージ ── CEO Jobs配下の自律型ECチーム。"""
+"""AI従業員パッケージ ── ContentLab Tokyo: CEO Jobs配下の自律型コンテンツ工場。"""
 
 from ai_employees.base import (
     AIEmployee,
@@ -8,9 +8,9 @@ from ai_employees.base import (
     _read_monthly_cost_jpy,
 )
 from ai_employees.workspace import Workspace
-from ai_employees.researcher import Researcher
-from ai_employees.merchandiser import Merchandiser
-from ai_employees.pricing_strategist import PricingStrategist
+from ai_employees.trend_researcher import TrendResearcher
+from ai_employees.scriptwriter import Scriptwriter
+from ai_employees.director import Director
 from ai_employees.cfo import CFO
 from ai_employees.ceo import CEO
 
@@ -22,8 +22,8 @@ __all__ = [
     "BudgetExceededError",
     "_read_monthly_cost_jpy",
     "CEO",
-    "Researcher",
-    "Merchandiser",
-    "PricingStrategist",
+    "TrendResearcher",
+    "Scriptwriter",
+    "Director",
     "CFO",
 ]

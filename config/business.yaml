@@ -1,52 +1,57 @@
 # ============================================================
-# AI自律型ECビジネス 経営設定 (CEO: Jobs)
+# ContentLab Tokyo - AI自律型コンテンツ工場 経営設定 (CEO: Jobs)
 # ============================================================
+# 顔出しなし・ビジネス/自己啓発ジャンル・YouTube長尺+Shorts/TikTok・日英展開
 # このファイルがビジネスの「定款」です。
 # オーナーは原則ここだけ編集すれば経営方針が変わります。
 # ============================================================
 
 business:
-  name: "BeautyTech Lab"
-  genre: "health_beauty_gadgets"   # 健康・美容ガジェット
-  brand_voice: "minimal-premium"    # ブランドトーン (Apple風)
+  name: "ContentLab Tokyo"
+  genre: "business_self_development"  # ビジネス・自己啓発・キャリア・副業
+  brand_voice: "calm-authoritative"    # 落ち着いた権威性 (TED的なトーン)
   budget_jpy_monthly: 100000
+  formats:
+    - long       # YouTube長尺 (8〜12分・広告収益主体)
+    - shorts     # YouTube Shorts / TikTok / Reels (60秒・拡散主体)
   markets:
-    - jp     # 日本市場
-    - en     # 英語圏 (US/UK/AU)
+    - jp
+    - en
   owner_name: "Owner"
   ceo_name: "Jobs"
 
-# 月予算の内訳 (CEOの裁量で変更可)
+# 月予算の内訳 (動画ビジネスは外注編集と素材調達がメインコスト)
 budget_allocation:
-  ads_jpy: 60000
-  inventory_jpy: 30000
-  api_and_ops_jpy: 10000
+  editing_jpy: 50000        # 動画編集 (外注エディター or AI動画ツール)
+  thumbnail_jpy: 10000      # サムネ素材・有償素材
+  ads_jpy: 30000            # 初動ブースト広告
+  api_and_ops_jpy: 10000    # Claude APIなど
 
 # AI従業員の編成 (コワーキング型: 全員が共有チャットに参加する)
 employees:
   ceo:
     title: "CEO"
     model: "claude-sonnet-4-6"
-  researcher:
-    title: "リサーチ部長"
+  trend_researcher:
+    title: "トレンドリサーチ部長"
     model: "claude-sonnet-4-6"
-    products_per_run: 5
-  merchandiser:
-    title: "マーチャンダイザー"
+    topics_per_run: 3
+  scriptwriter:
+    title: "脚本家"
     model: "claude-sonnet-4-6"
-  pricing_strategist:
-    title: "価格戦略担当"
-    model: "claude-haiku-4-5-20251001"
+    shorts_per_topic: 3       # 1つの長尺から派生させるShortsの数
+  director:
+    title: "演出ディレクター"
+    model: "claude-sonnet-4-6"
   cfo:
     title: "CFO"
     model: "claude-haiku-4-5-20251001"
 
 operations:
-  candidates_dir: "data/candidates"
+  trends_dir: "data/content/trends"
+  scripts_dir: "data/content/scripts"
+  production_dir: "data/content/production"
   reports_dir: "data/reports"
-  csv_out_dir: "data/csv_out"
   state_file: "data/state.json"
   cowork_dir: "data/cowork"
-  # 本番Shopifyに接続せず、CSV/レポート生成だけ行うモード
-  # 初回はtrueで安全運転、本番化はfalseに切替
   simulation_mode: true

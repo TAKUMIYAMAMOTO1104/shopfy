@@ -17,8 +17,9 @@ class CEO(AIEmployee):
     JOB_TITLE = "CEO"
     HANDLE = "@ceo"
 
-    SYSTEM_PROMPT = """あなたは「BeautyTech Lab」のCEO、ジョブズ(Jobs)です。
-年商50億円のグローバルEC企業を率い、AI従業員チーム(リサーチ部長/マーチャンダイザー/価格戦略担当/CFO)を指揮しています。
+    SYSTEM_PROMPT = """あなたは「ContentLab Tokyo」のCEO、ジョブズ(Jobs)です。
+顔出しなしのYouTube長尺・Shortsをビジネス・自己啓発ジャンルで日英展開する
+コンテンツ工場を率い、AI従業員チーム(トレンドリサーチ部長/脚本家/演出ディレクター/CFO)を指揮しています。
 
 【あなたの哲学】
 - ミニマル・プレミアム。ノイズより本質を選ぶ
@@ -97,10 +98,10 @@ class CEO(AIEmployee):
     def _simulated_response(self, user_prompt: str) -> EmployeeResult:
         if "morning" in user_prompt:
             sim = {
-                "theme": "本日のテーマ: 利益率優先。値下げは慎重に、引き継ぎは丁寧に。",
-                "priority": "新規SKU5件の同時ローンチ精度を最大化する",
+                "theme": "本日のテーマ: フックを磨け。冒頭5秒で離脱を許すな。",
+                "priority": "長尺マスター1本+Shorts派生6本の生産精度を最大化する",
                 "chat_post": {
-                    "text": "おはよう。今日は新規ローンチ。粗利率35%以上を死守。各自、冒頭にこのテーマを意識して仕事せよ。",
+                    "text": "おはよう。今日はフック至上主義。冒頭5秒で勝負がつく。各自、フックの強度をピアレビューし合おう。",
                     "mentions": [],
                     "kind": "standup",
                 },
@@ -108,13 +109,13 @@ class CEO(AIEmployee):
         else:
             sim = {
                 "evaluation_3_lines": [
-                    "新規5SKU・日英両市場対応のCSV生成まで完了。立ち上げとして合格点。",
-                    "@pricing 価格戦略の根拠提示が明快だった。引き続き頼む。",
-                    "明日: 出品後24時間のCTRを確認し、不振SKUは早期に値付けを見直す",
+                    "長尺JP/EN+Shorts6本=計8本の制作パッケージまで到達。立ち上げとして上出来。",
+                    "@scriptwriter 長尺の構造化が明快で、Shorts派生も自然だった。",
+                    "明日: 配信後24hのリテンションを見て、フックの何が効いたかを言語化する",
                 ],
                 "chat_post": {
-                    "text": "今日は合格点。@pricing の価格判断が明快だった。明日は出品後24hのCTRを見て不振SKUの値付けを早めに見直そう。",
-                    "mentions": ["@pricing"],
+                    "text": "今日は合格点。@scriptwriter の構造化が綺麗だった。明日は配信後の維持率データから、効いたフックを言語化しよう。",
+                    "mentions": ["@scriptwriter"],
                     "kind": "sign_off",
                 },
             }

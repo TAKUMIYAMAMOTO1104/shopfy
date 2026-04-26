@@ -7,11 +7,15 @@ logs/
 # AIビジネス生成データ (ローカルでのみ蓄積、リポジトリには含めない)
 data/state.json
 data/cost_ledger.jsonl
-data/candidates/*.json
 data/reports/*.json
-data/csv_out/*.csv
+data/content/trends/*.json
+data/content/scripts/**/*.json
+data/content/scripts/**/*.md
+data/content/production/**/*.json
+data/content/production/**/*.md
 data/cowork/chat_log.jsonl
 data/cowork/whiteboard.md
 data/cowork/inbox/*.jsonl
 data/cowork/daily_log/*.jsonl
 !data/.gitkeep
+!**/.gitkeep

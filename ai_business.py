@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""AI自律型ECビジネス・コマンドラインツール (コワーキング版)。
+"""ContentLab Tokyo - AI自律型コンテンツ工場 CLI (コワーキング版)。
 
-オーナーが叩く窓口。CEO Jobs と AI従業員4名が共有チャットで会話・引き継ぎ・
-指摘し合いながら1日分の経営サイクルを自走する。
+オーナーが叩く窓口。CEO Jobs と AI従業員4名(トレンドリサーチ部長/脚本家/
+演出ディレクター/CFO)が共有チャットで会話・引き継ぎ・指摘し合いながら
+1日分の制作サイクルを自走する。
 
 使い方:
   python ai_business.py doctor         # 環境診断 (本番化前に必ず実行)
   python ai_business.py init           # ビジネス状態を初期化
-  python ai_business.py research       # リサーチ部長に商品候補を出させる
-  python ai_business.py merchandise    # マーチャンダイザーにCSVを作らせる
-  python ai_business.py price          # 価格戦略担当に値付けさせる
+  python ai_business.py research       # トレンド部長にトピック候補を出させる
+  python ai_business.py write          # 脚本家に長尺+Shortsを書かせる
+  python ai_business.py direct         # ディレクターにサムネ・タイトル等を作らせる
   python ai_business.py report         # CFOに日次レポートを書かせる
   python ai_business.py run-day        # 朝会→各業務→終礼の全ターンを実行
   python ai_business.py chat           # 本日の社内チャットをSlack風に表示
@@ -24,7 +25,7 @@ import argparse
 import json
 import os
 import sys
-from datetime import datetime, date
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -33,9 +34,9 @@ from dotenv import load_dotenv
 from ai_employees import (
     CEO,
     CFO,
-    Merchandiser,
-    PricingStrategist,
-    Researcher,
+    Director,
+    Scriptwriter,
+    TrendResearcher,
     Workspace,
     _read_monthly_cost_jpy,
 )
@@ -52,7 +53,6 @@ CONFIG_PATH = Path("config/business.yaml")
 # ====================================================================== #
 
 def load_config() -> dict[str, Any]:
-    """YAMLが使えれば使い、なければ最小限のフォールバックパーサで読む。"""
     if not CONFIG_PATH.exists():
         logger.error(f"設定ファイルが見つかりません: {CONFIG_PATH}")
         sys.exit(1)
@@ -96,7 +96,6 @@ def _minimal_yaml_parse(text: str) -> dict[str, Any]:
         if stripped.startswith("- "):
             val = _coerce(stripped[2:])
             if not isinstance(parent, list):
-                # 親辞書の最後のキーをリスト化
                 last_key = list(parent.keys())[-1]
                 if not isinstance(parent[last_key], list):
                     parent[last_key] = []
@@ -122,17 +121,14 @@ def load_state(path: Path) -> dict[str, Any]:
         return json.loads(path.read_text(encoding="utf-8"))
     return {
         "initialized_at": None,
-        "cash_jpy": 100000,
         "monthly_budget_jpy": 100000,
-        "ad_spend_jpy_total": 0,
-        "ad_spend_jpy_today": 0,
-        "ad_budget_remaining_jpy": 60000,
-        "revenue_jpy": 0,
-        "cogs_jpy": 0,
-        "inventory_value_jpy": 0,
-        "daily_burn_jpy": 3500,
-        "skus": [],
-        "top_sellers": [],
+        "videos": [],            # [{"internal_code", "label", "platform", "language", "title", "script_path", "package_path", "added_at"}]
+        "videos_produced_today": 0,
+        "videos_posted_today": 0,
+        "views_24h": 0,
+        "ad_revenue_jpy": 0,
+        "subs_delta": 0,
+        "top_videos": [],
         "underperformers": [],
     }
 
@@ -149,9 +145,9 @@ def save_state(path: Path, state: dict[str, Any]) -> None:
 def _make_employee(cfg: dict, role_key: str, sim: bool):
     role = cfg["employees"][role_key]
     cls_map = {
-        "researcher": Researcher,
-        "merchandiser": Merchandiser,
-        "pricing_strategist": PricingStrategist,
+        "trend_researcher": TrendResearcher,
+        "scriptwriter": Scriptwriter,
+        "director": Director,
         "cfo": CFO,
         "ceo": CEO,
     }
@@ -168,13 +164,13 @@ def _make_workspace(cfg: dict) -> Workspace:
     return Workspace(root=root)
 
 
-# Slack風表示用の色付け (端末対応)
+# Slack風表示用の色付け
 HANDLE_COLORS = {
-    "@ceo":          "\033[1;33m",   # bold yellow
-    "@researcher":   "\033[36m",     # cyan
-    "@merchandiser": "\033[32m",     # green
-    "@pricing":      "\033[35m",     # magenta
-    "@cfo":          "\033[34m",     # blue
+    "@ceo":          "\033[1;33m",
+    "@researcher":   "\033[36m",
+    "@scriptwriter": "\033[32m",
+    "@director":     "\033[35m",
+    "@cfo":          "\033[34m",
 }
 RESET = "\033[0m"
 
@@ -218,102 +214,105 @@ def cmd_init(args, cfg):
         return
     state = load_state(state_path)
     state["initialized_at"] = datetime.now().isoformat(timespec="seconds")
-    state["cash_jpy"] = cfg["business"]["budget_jpy_monthly"]
     state["monthly_budget_jpy"] = cfg["business"]["budget_jpy_monthly"]
-    state["ad_budget_remaining_jpy"] = cfg["budget_allocation"]["ads_jpy"]
     save_state(state_path, state)
     print(f"\n✓ ビジネス '{cfg['business']['name']}' を初期化しました")
     print(f"  CEO: {cfg['business']['ceo_name']}, オーナー: {cfg['business']['owner_name']}")
+    print(f"  ジャンル: {cfg['business']['genre']}")
     print(f"  月予算: ¥{cfg['business']['budget_jpy_monthly']:,}")
     print(f"  状態ファイル: {state_path}")
 
 
 def cmd_research(args, cfg, workspace=None):
     sim = cfg["operations"].get("simulation_mode", True)
-    emp = _make_employee(cfg, "researcher", sim)
+    emp = _make_employee(cfg, "trend_researcher", sim)
     state_path = Path(cfg["operations"]["state_file"])
     state = load_state(state_path)
-    avoid = [s["internal_code"] for s in state.get("skus", [])]
-    n = cfg["employees"]["researcher"]["products_per_run"]
+    avoid = list({v.get("internal_code") for v in state.get("videos", []) if v.get("internal_code")})
+    n = cfg["employees"]["trend_researcher"].get("topics_per_run", 3)
     result = emp.run(
-        n_products=n, avoid_codes=avoid,
-        out_dir=cfg["operations"]["candidates_dir"],
+        n_topics=n, avoid_codes=avoid,
+        out_dir=cfg["operations"]["trends_dir"],
         workspace=workspace,
     )
-    _print_result("リサーチ実施", result)
+    _print_result("トレンドリサーチ", result)
     return result
 
 
-def cmd_merchandise(args, cfg, workspace=None):
+def cmd_write(args, cfg, workspace=None):
     sim = cfg["operations"].get("simulation_mode", True)
-    cand_dir = Path(cfg["operations"]["candidates_dir"])
-    candidates_files = sorted(cand_dir.glob("*.json"))
-    if not candidates_files:
-        print(f"先に research を実行してください ({cand_dir} に候補がありません)")
+    trends_dir = Path(cfg["operations"]["trends_dir"])
+    files = sorted(trends_dir.glob("*.json"))
+    if not files:
+        print(f"先に research を実行してください ({trends_dir} にトレンドJSONがありません)")
         sys.exit(1)
-    candidates = json.loads(candidates_files[-1].read_text(encoding="utf-8"))
-    emp = _make_employee(cfg, "merchandiser", sim)
+    trends = json.loads(files[-1].read_text(encoding="utf-8"))
+    # top_pick優先、なければ最初のトピック
+    top_code = trends.get("top_pick_code")
+    topics = trends.get("topics", [])
+    topic = next((t for t in topics if t.get("internal_code") == top_code), topics[0] if topics else None)
+    if not topic:
+        print("トピックが空です。research をやり直してください。")
+        sys.exit(1)
+
+    emp = _make_employee(cfg, "scriptwriter", sim)
+    shorts_n = cfg["employees"]["scriptwriter"].get("shorts_per_topic", 3)
     result = emp.run(
-        candidates=candidates, out_dir=cfg["operations"]["csv_out_dir"],
+        topic=topic,
+        out_dir=cfg["operations"]["scripts_dir"],
+        shorts_per_topic=shorts_n,
+        workspace=workspace,
+    )
+    _print_result("脚本執筆", result)
+    return result
+
+
+def cmd_direct(args, cfg, workspace=None):
+    sim = cfg["operations"].get("simulation_mode", True)
+    scripts_dir = Path(cfg["operations"]["scripts_dir"])
+    # 最新日付ディレクトリの最新コードのscripts.jsonを拾う
+    date = datetime.now().strftime("%Y-%m-%d")
+    today_dir = scripts_dir / date
+    if not today_dir.exists():
+        print(f"先に write を実行してください ({today_dir} がありません)")
+        sys.exit(1)
+    code_dirs = sorted([d for d in today_dir.iterdir() if d.is_dir()])
+    if not code_dirs:
+        print(f"脚本がありません: {today_dir}")
+        sys.exit(1)
+    scripts_json = code_dirs[-1] / "scripts.json"
+    scripts = json.loads(scripts_json.read_text(encoding="utf-8"))
+
+    emp = _make_employee(cfg, "director", sim)
+    result = emp.run(
+        scripts=scripts,
+        out_dir=cfg["operations"]["production_dir"],
         workspace=workspace,
     )
 
-    # SKUリストを状態に登録
+    # 状態に動画を登録
     state_path = Path(cfg["operations"]["state_file"])
     state = load_state(state_path)
-    new_skus = []
-    for p in result.output.get("products", []):
-        new_skus.append({
-            "internal_code": p["internal_code"],
-            "sku_jp": p["jp"]["sku"],
-            "sku_en": p["en"]["sku"],
-            "price_jp": p["jp"]["price"],
-            "price_en": p["en"]["price"],
-            "category": p["jp"].get("product_type", ""),
+    code = result.output.get("internal_code", "CTL-XXX")
+    new_videos = []
+    for p in result.output.get("packages", []):
+        new_videos.append({
+            "internal_code": code,
+            "label": p.get("label"),
+            "platform": p.get("platform"),
+            "language": p.get("language"),
+            "recommended_title": (p.get("title_variants") or [""])[p.get("recommended_title_index", 0)],
             "added_at": datetime.now().isoformat(timespec="seconds"),
+            "posted": False,
         })
-    existing = {s["internal_code"] for s in state.get("skus", [])}
-    for s in new_skus:
-        if s["internal_code"] not in existing:
-            state.setdefault("skus", []).append(s)
-    state["inventory_value_jpy"] = sum(
-        int(p["jp"]["price"]) * 0.3 * 20
-        for p in result.output.get("products", [])
-    ) + state.get("inventory_value_jpy", 0)
+    existing = {(v.get("internal_code"), v.get("label")) for v in state.get("videos", [])}
+    for v in new_videos:
+        if (v["internal_code"], v["label"]) not in existing:
+            state.setdefault("videos", []).append(v)
+    state["videos_produced_today"] = len(new_videos)
     save_state(state_path, state)
 
-    _print_result("商品ページ生成", result)
-    return result
-
-
-def cmd_price(args, cfg, workspace=None):
-    sim = cfg["operations"].get("simulation_mode", True)
-    state_path = Path(cfg["operations"]["state_file"])
-    state = load_state(state_path)
-    snapshot = []
-    for s in state.get("skus", []):
-        # シミュレーション: 売上はランダム生成 (本番ではShopify APIから取得)
-        import hashlib
-        h = int(hashlib.md5(s["sku_jp"].encode()).hexdigest(), 16)
-        sold7 = h % 8  # 0〜7
-        stock = max(20 - sold7 * 2, 0)
-        cost = int(s["price_jp"] * 0.25)
-        snapshot.append({
-            "sku": s["sku_jp"],
-            "price": s["price_jp"],
-            "cost": cost,
-            "sold_last_7days": sold7,
-            "inventory": stock,
-        })
-    if not snapshot:
-        print("価格判定対象のSKUがありません。先にmerchandiseを実行してください。")
-        return
-    emp = _make_employee(cfg, "pricing_strategist", sim)
-    result = emp.run(
-        sales_snapshot=snapshot, out_dir=cfg["operations"]["csv_out_dir"],
-        workspace=workspace,
-    )
-    _print_result("価格戦略", result)
+    _print_result("演出パッケージ生成", result)
     return result
 
 
@@ -321,6 +320,11 @@ def cmd_report(args, cfg, workspace=None):
     sim = cfg["operations"].get("simulation_mode", True)
     state_path = Path(cfg["operations"]["state_file"])
     state = load_state(state_path)
+    # APIコスト消化を含めて状態に注入
+    used = _read_monthly_cost_jpy()
+    budget = cfg.get("budget_allocation", {}).get("api_and_ops_jpy", 10_000)
+    state["api_spend_jpy"] = int(used)
+    state["monthly_budget_remaining_jpy"] = max(0, int(budget - used))
     emp = _make_employee(cfg, "cfo", sim)
     result = emp.run(
         business_state=state, out_dir=cfg["operations"]["reports_dir"],
@@ -339,9 +343,8 @@ def cmd_report(args, cfg, workspace=None):
 def cmd_run_day(args, cfg):
     sim = cfg["operations"].get("simulation_mode", True)
     workspace = _make_workspace(cfg)
-    workspace.reset_today()  # 新しいサイクル開始
+    workspace.reset_today()
 
-    # CEOモデル設定 (configに無ければSonnet 4.6既定)
     cfg["employees"].setdefault("ceo", {"model": "claude-sonnet-4-6"})
 
     print("\n╔══════════════════════════════════════════════╗")
@@ -351,19 +354,14 @@ def cmd_run_day(args, cfg):
 
     ceo = _make_employee(cfg, "ceo", sim)
 
-    # ── 朝会 ──
     print("\n── 朝会 (CEO Jobs) ──")
     ceo.open_day(workspace)
 
-    # ── 業務 (リサーチ → 商品化 → 価格戦略) ──
     cmd_research(args, cfg, workspace=workspace)
-    cmd_merchandise(args, cfg, workspace=workspace)
-    cmd_price(args, cfg, workspace=workspace)
-
-    # ── CFO 締め ──
+    cmd_write(args, cfg, workspace=workspace)
+    cmd_direct(args, cfg, workspace=workspace)
     cmd_report(args, cfg, workspace=workspace)
 
-    # ── CEO 終礼 ──
     print("\n── 終礼 (CEO Jobs 総評) ──")
     closing = ceo.close_day(workspace)
     eval_lines = closing.output.get("evaluation_3_lines", [])
@@ -373,7 +371,6 @@ def cmd_run_day(args, cfg):
             print(f"│ {line}")
         print("└─────────────────────")
 
-    # ── 本日のチャットを表示 ──
     print("\n══════ 本日の社内チャット (Slack風) ══════")
     _print_chat(workspace.today_chat())
     print("\n✓ コワーキングサイクル完了。`python ai_business.py chat` でいつでも見返せます。")
@@ -385,27 +382,23 @@ def cmd_doctor(args, cfg):
     issues: list[str] = []
     ok: list[str] = []
 
-    # 1. anthropic SDK
     try:
         import anthropic  # noqa: F401
         ok.append("anthropic SDK: インストール済み")
     except ImportError:
         issues.append("anthropic SDK 未インストール → `pip install -r requirements.txt`")
 
-    # 2. PyYAML (config読み込み用)
     try:
         import yaml  # noqa: F401
         ok.append("PyYAML: インストール済み")
     except ImportError:
         issues.append("PyYAML 未インストール → `pip install -r requirements.txt`")
 
-    # 3. .env
     if Path(".env").exists():
         ok.append(".env ファイル: 存在")
     else:
         issues.append(".env が無い → `cp .env.example .env` で雛形を作成し、APIキーを記入")
 
-    # 4. ANTHROPIC_API_KEY
     key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if not key:
         issues.append("ANTHROPIC_API_KEY 未設定 → .env に記入")
@@ -414,21 +407,11 @@ def cmd_doctor(args, cfg):
     else:
         ok.append(f"ANTHROPIC_API_KEY: 設定済み (...{key[-4:]})")
 
-    # 5. Shopify認証 (任意・本番化時に必要)
-    shop = os.getenv("SHOPIFY_SHOP_NAME") or os.getenv("SHOPIFY_STORE")
-    token = os.getenv("SHOPIFY_ACCESS_TOKEN") or os.getenv("SHOPIFY_TOKEN")
-    if shop and token:
-        ok.append(f"Shopify認証: 設定済み (shop={shop})")
-    else:
-        ok.append("Shopify認証: 未設定 (シミュレーション中はOK・本番化時に必要)")
-
-    # 6. 設定ファイル
     if Path("config/business.yaml").exists():
         ok.append("config/business.yaml: 存在")
     else:
         issues.append("config/business.yaml が無い")
 
-    # 7. 月次API予算消化状況
     used = _read_monthly_cost_jpy()
     budget = cfg.get("budget_allocation", {}).get("api_and_ops_jpy", 10_000)
     pct = round(used / budget * 100, 1) if budget else 0
@@ -438,14 +421,12 @@ def cmd_doctor(args, cfg):
     if used >= budget:
         issues.append(f"月次予算超過 ¥{used:,.0f} ≥ ¥{budget:,} → API呼び出しがブロックされます")
 
-    # 8. シミュレーションフラグ
     sim = cfg["operations"].get("simulation_mode", True)
     if sim:
         ok.append("simulation_mode: true (Claude API は呼ばれません)")
     else:
         ok.append("simulation_mode: false (本番モード・実APIコール)")
 
-    # 9. APIピング (キーが正しく入っていれば)
     api_ping_ok = False
     if key and key.startswith("sk-ant-") and not any("anthropic SDK" in i for i in issues):
         try:
@@ -462,7 +443,6 @@ def cmd_doctor(args, cfg):
         except Exception as e:
             issues.append(f"Claude API ping 失敗: {e}")
 
-    # 結果
     print("  ── OK ──")
     for o in ok:
         print(f"  ✓ {o}")
@@ -479,7 +459,6 @@ def cmd_doctor(args, cfg):
 
 
 def cmd_chat(args, cfg):
-    """本日(または直近)の社内チャットを表示。"""
     workspace = _make_workspace(cfg)
     if args.all:
         msgs = workspace.recent_chat(n=200)
@@ -497,18 +476,21 @@ def cmd_status(args, cfg):
         print("未初期化です。`python ai_business.py init` を実行してください。")
         return
     state = load_state(state_path)
+    used = _read_monthly_cost_jpy()
+    budget = cfg.get("budget_allocation", {}).get("api_and_ops_jpy", 10_000)
     print(f"\n■ ビジネス: {cfg['business']['name']}")
+    print(f"  ジャンル: {cfg['business']['genre']}")
     print(f"  初期化日時: {state.get('initialized_at')}")
-    print(f"  キャッシュ: ¥{state.get('cash_jpy', 0):,}")
-    print(f"  月予算残: ¥{state.get('ad_budget_remaining_jpy', 0):,}")
-    print(f"  在庫評価額: ¥{int(state.get('inventory_value_jpy', 0)):,}")
-    print(f"  登録SKU数: {len(state.get('skus', []))}")
+    print(f"  月予算 (合計): ¥{state.get('monthly_budget_jpy', 0):,}")
+    print(f"  API消化額/予算: ¥{used:,.0f} / ¥{budget:,}")
+    print(f"  本日生産動画数: {state.get('videos_produced_today', 0)}")
+    print(f"  累計動画数: {len(state.get('videos', []))}")
     print(f"  シミュレーションモード: {cfg['operations'].get('simulation_mode')}")
-    skus = state.get("skus", [])
-    if skus:
-        print("\n  ── 登録SKU ──")
-        for s in skus[-10:]:
-            print(f"    {s['internal_code']} | JP:{s['sku_jp']} ¥{s['price_jp']:,} | EN:{s['sku_en']} ${s['price_en']}")
+    videos = state.get("videos", [])
+    if videos:
+        print("\n  ── 直近の動画ラインナップ ──")
+        for v in videos[-10:]:
+            print(f"    [{v.get('platform','?'):14}] {v.get('label','?'):15} ({v.get('language','?'):2}) {v.get('recommended_title','')[:40]}")
 
 
 # ====================================================================== #
@@ -518,7 +500,7 @@ def cmd_status(args, cfg):
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="ai_business",
-        description="AI自律型ECビジネス (CEO Jobs指揮)",
+        description="ContentLab Tokyo - AI自律型コンテンツ工場 (CEO Jobs指揮)",
     )
     sub = p.add_subparsers(dest="command", required=True)
 
@@ -526,10 +508,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_init.add_argument("--force", action="store_true", help="既存状態を上書きする")
     p_init.set_defaults(func=cmd_init)
 
-    sub.add_parser("research", help="商品候補をリサーチする").set_defaults(func=cmd_research)
-    sub.add_parser("merchandise", help="商品ページCSVを生成する").set_defaults(func=cmd_merchandise)
-    sub.add_parser("price", help="価格戦略を実行する").set_defaults(func=cmd_price)
-    sub.add_parser("report", help="日次レポートを生成する").set_defaults(func=cmd_report)
+    sub.add_parser("research", help="トレンドトピックをリサーチする").set_defaults(func=cmd_research)
+    sub.add_parser("write", help="長尺+Shorts脚本を執筆する").set_defaults(func=cmd_write)
+    sub.add_parser("direct", help="演出パッケージ(タイトル/サムネ/説明文)を作る").set_defaults(func=cmd_direct)
+    sub.add_parser("report", help="CFOの日次レポートを生成する").set_defaults(func=cmd_report)
     sub.add_parser("run-day", help="朝会→業務→終礼までのコワーキング1日サイクル").set_defaults(func=cmd_run_day)
     sub.add_parser("status", help="ビジネス状態を表示").set_defaults(func=cmd_status)
 
