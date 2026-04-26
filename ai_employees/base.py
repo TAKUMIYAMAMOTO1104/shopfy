@@ -1,0 +1,180 @@
+"""AI従業員の共通基盤。
+
+全従業員はこの`AIEmployee`を継承する。Claude APIへのアクセス、
+プロンプトキャッシュ、JSON出力パース、トークン使用量集計を一元管理する。
+
+設計原則 (CEO Jobs):
+  1. システムプロンプトは必ずキャッシュ対象 (cache_control=ephemeral)
+  2. 出力はJSONを強制 (構造化データのみ受け取る)
+  3. シミュレーションモードではClaude APIを呼ばずスタブ応答を返す
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+from dataclasses import dataclass, field
+from typing import Any
+
+from utils.logger import setup_logger
+
+logger = setup_logger(__name__)
+
+
+@dataclass
+class EmployeeResult:
+    """AI従業員1回の業務結果。"""
+
+    employee: str
+    output: dict[str, Any]
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    model: str = ""
+    notes: list[str] = field(default_factory=list)
+
+    def cost_jpy_estimate(self) -> float:
+        """ざっくりとしたAPIコスト試算 (円)。
+
+        概算レート (1USD≒155円, 2026/04時点):
+          Sonnet: $3 / Mtok input, $15 / Mtok output, cache read $0.30
+          Haiku:  $1 / Mtok input, $5  / Mtok output, cache read $0.10
+        モデル名で簡易判定する。
+        """
+        is_haiku = "haiku" in self.model
+        in_rate = 1.0 if is_haiku else 3.0
+        out_rate = 5.0 if is_haiku else 15.0
+        cache_rate = 0.1 if is_haiku else 0.3
+        usd = (
+            self.input_tokens * in_rate
+            + self.output_tokens * out_rate
+            + self.cache_read_tokens * cache_rate
+            + self.cache_write_tokens * (in_rate * 1.25)
+        ) / 1_000_000
+        return round(usd * 155.0, 2)
+
+
+class AIEmployee:
+    """AI従業員の基底クラス。
+
+    継承クラスは下記をオーバーライドする:
+      - JOB_TITLE: 役職名 (ログ用)
+      - SYSTEM_PROMPT: 役割定義 (1024トークン以上推奨。キャッシュされる)
+      - run(...): 業務実行ロジック
+    """
+
+    JOB_TITLE: str = "AI従業員"
+    SYSTEM_PROMPT: str = "あなたはAI従業員です。"
+
+    def __init__(self, model: str, simulation_mode: bool = False):
+        self.model = model
+        self.simulation_mode = simulation_mode
+        self._client = None
+        if not simulation_mode:
+            try:
+                from anthropic import Anthropic
+            except ImportError as e:
+                raise RuntimeError(
+                    "anthropic SDKがインストールされていません。"
+                    "pip install -r requirements.txt を実行してください。"
+                ) from e
+            api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+            if not api_key:
+                raise RuntimeError(
+                    "ANTHROPIC_API_KEYが.envに設定されていません。"
+                    "シミュレーションのみで動かす場合は config/business.yaml の "
+                    "operations.simulation_mode: true にしてください。"
+                )
+            self._client = Anthropic(api_key=api_key)
+
+    # ------------------------------------------------------------------ #
+    # 共通: Claude API呼び出し
+    # ------------------------------------------------------------------ #
+
+    def _ask(
+        self,
+        user_prompt: str,
+        max_tokens: int = 4096,
+        json_only: bool = True,
+    ) -> EmployeeResult:
+        """Claude APIに問い合わせ、JSON応答をパースして返す。"""
+        if self.simulation_mode:
+            return self._simulated_response(user_prompt)
+
+        # システムプロンプトはキャッシュ対象 (役職定義は毎回同じため)
+        system_blocks = [
+            {
+                "type": "text",
+                "text": self.SYSTEM_PROMPT,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ]
+        msg_user = user_prompt
+        if json_only:
+            msg_user += (
+                "\n\n出力は厳密に有効なJSONオブジェクトのみ。"
+                "前置き・コードフェンス・説明文は一切禁止。"
+            )
+
+        logger.info(f"[{self.JOB_TITLE}] Claude API呼び出し開始 (model={self.model})")
+        resp = self._client.messages.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            system=system_blocks,
+            messages=[{"role": "user", "content": msg_user}],
+        )
+
+        text = "".join(
+            block.text for block in resp.content if getattr(block, "type", "") == "text"
+        )
+        usage = resp.usage
+        result = EmployeeResult(
+            employee=self.JOB_TITLE,
+            output=self._parse_json(text) if json_only else {"text": text},
+            input_tokens=getattr(usage, "input_tokens", 0),
+            output_tokens=getattr(usage, "output_tokens", 0),
+            cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
+            cache_write_tokens=getattr(usage, "cache_creation_input_tokens", 0) or 0,
+            model=self.model,
+        )
+        logger.info(
+            f"[{self.JOB_TITLE}] 完了 "
+            f"(in={result.input_tokens}, out={result.output_tokens}, "
+            f"cache_read={result.cache_read_tokens}, ¥{result.cost_jpy_estimate()})"
+        )
+        return result
+
+    # ------------------------------------------------------------------ #
+    # JSONパース
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _parse_json(text: str) -> dict[str, Any]:
+        """LLM出力からJSONを取り出す (コードフェンス混入にも耐える)。"""
+        text = text.strip()
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\s*", "", text)
+            text = re.sub(r"\s*```\s*$", "", text)
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            # 最初の{...}を貪欲に拾う最後の手段
+            m = re.search(r"\{.*\}", text, re.DOTALL)
+            if m:
+                return json.loads(m.group(0))
+            raise
+
+    # ------------------------------------------------------------------ #
+    # シミュレーション応答 (継承先で具体化)
+    # ------------------------------------------------------------------ #
+
+    def _simulated_response(self, user_prompt: str) -> EmployeeResult:
+        """API契約前/オフライン時のスタブ応答。継承先で意味のあるダミーを返す。"""
+        return EmployeeResult(
+            employee=self.JOB_TITLE,
+            output={"simulated": True, "message": "(simulation mode)"},
+            model=f"{self.model} [SIM]",
+            notes=["シミュレーションモードのため固定応答"],
+        )

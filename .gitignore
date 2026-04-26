@@ -3,3 +3,10 @@ __pycache__/
 *.pyc
 logs/
 *.log
+
+# AIビジネス生成データ (ローカルでのみ蓄積、リポジトリには含めない)
+data/state.json
+data/candidates/*.json
+data/reports/*.json
+data/csv_out/*.csv
+!data/.gitkeep

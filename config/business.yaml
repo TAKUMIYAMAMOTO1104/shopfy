@@ -1,0 +1,48 @@
+# ============================================================
+# AI自律型ECビジネス 経営設定 (CEO: Jobs)
+# ============================================================
+# このファイルがビジネスの「定款」です。
+# オーナーは原則ここだけ編集すれば経営方針が変わります。
+# ============================================================
+
+business:
+  name: "BeautyTech Lab"
+  genre: "health_beauty_gadgets"   # 健康・美容ガジェット
+  brand_voice: "minimal-premium"    # ブランドトーン (Apple風)
+  budget_jpy_monthly: 100000
+  markets:
+    - jp     # 日本市場
+    - en     # 英語圏 (US/UK/AU)
+  owner_name: "Owner"
+  ceo_name: "Jobs"
+
+# 月予算の内訳 (CEOの裁量で変更可)
+budget_allocation:
+  ads_jpy: 60000
+  inventory_jpy: 30000
+  api_and_ops_jpy: 10000
+
+# AI従業員の編成
+employees:
+  researcher:
+    title: "リサーチ部長"
+    model: "claude-sonnet-4-6"
+    products_per_run: 5
+  merchandiser:
+    title: "マーチャンダイザー"
+    model: "claude-sonnet-4-6"
+  pricing_strategist:
+    title: "価格戦略担当"
+    model: "claude-haiku-4-5-20251001"
+  cfo:
+    title: "CFO"
+    model: "claude-haiku-4-5-20251001"
+
+operations:
+  candidates_dir: "data/candidates"
+  reports_dir: "data/reports"
+  csv_out_dir: "data/csv_out"
+  state_file: "data/state.json"
+  # 本番Shopifyに接続せず、CSV/レポート生成だけ行うモード
+  # 初回はtrueで安全運転、本番化はfalseに切替
+  simulation_mode: true
