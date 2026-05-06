@@ -67,27 +67,28 @@ python backtest.py --days 120 --seed 42
 
 ## 2. XMデモ口座でのライブトレード (Windowsのみ)
 
-### 前提
-1. **Windows PC** (MetaTrader5 PythonパッケージはWindowsのみ)
-2. **XMデモ口座** ([XM公式サイト](https://www.xmtrading.com)で開設)
-3. **MT5デスクトップアプリ** をインストール、デモ口座でログイン
+**詳細手順は [SETUP_XM.md](./SETUP_XM.md) を参照** (口座開設からVPS化まで全部書いてあります)。
 
-### 設定
-```bash
-cp .env.example .env
-# .env を開いて MT5_LOGIN / MT5_PASSWORD / MT5_SERVER を記入
-```
+短縮版:
 
-### 実行
-```bash
-# まずドライラン (注文を出さずシグナルだけ確認)
+```powershell
+# 1. XMデモ口座開設 → MT5デスクトップアプリでログイン → アルゴ取引ON
+# 2. 仮想環境
+python -m venv .venv && .venv\Scripts\activate
+pip install -r requirements.txt MetaTrader5
+
+# 3. .env を作成して MT5_LOGIN / PASSWORD / SERVER を記入
+copy .env.example .env
+
+# 4. 接続診断 (注文は出さない)
+python check_connection.py
+
+# 5. ドライラン (シグナルログのみ)
 python live_trader.py --dry-run
 
-# 本番ループ (デモ口座に注文を送る)
+# 6. デモ実発注
 python live_trader.py
 ```
-
-ログには各5分足クローズ毎のシグナル判断と、エントリー時の注文結果が出ます。
 
 ## 3. 実データでバックテスト
 
