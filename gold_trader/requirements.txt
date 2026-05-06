@@ -1,0 +1,6 @@
+numpy>=1.24
+pandas>=2.0
+matplotlib>=3.7
+python-dotenv>=1.0
+# MT5 (Windows only — XMデモ口座へ接続するときに使用)
+MetaTrader5>=5.0.45 ; sys_platform == "win32"
