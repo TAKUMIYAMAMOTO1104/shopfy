@@ -12,7 +12,13 @@
 - 不発だった動画とその仮説:
   - (該当なし)
 - 次の試行予定:
-  - (Phase 1 トレンドリサーチ未実施)
+  - **動画ID: A2-001**「【家にあったら売れる】プレミア硬貨ランキングTOP5」(60秒・ずんだもん)
+    - リサーチ: research_20260517_money_trivia.md
+    - 企画: plan_20260517_caseA.md
+    - 台本: script_20260517_premium_coin_top5.md
+    - 制作指示: production_guide.md
+    - サムネ/タイトル/説明文: phase5_thumbnail_title_description.md
+    - 状態: **Phase 5 完了 → 制作・公開待ち**
 
 ---
 
