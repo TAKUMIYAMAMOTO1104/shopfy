@@ -1,0 +1,746 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>にゃんねる - 猫好きのための匿名掲示板</title>
+<style>
+  /* ===== 2ちゃんねる風レトロデザイン ===== */
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    background-color: #efefef;
+    color: #000000;
+    font-family: "ＭＳ Ｐゴシック", "MS PGothic", "Hiragino Kaku Gothic Pro", Osaka, sans-serif;
+    font-size: 13px;
+    line-height: 1.4;
+    margin: 0;
+    padding: 0;
+  }
+  a {
+    color: #0000ee;
+    text-decoration: underline;
+  }
+  a:visited {
+    color: #0000ee;
+  }
+  a:hover {
+    color: #ff0000;
+  }
+
+  /* ヘッダー */
+  #header {
+    background-color: #cccc99;
+    border-bottom: 2px solid #889977;
+    padding: 6px 10px;
+  }
+  #header .logo-wrap {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  #header pre.ascii {
+    margin: 0;
+    font-family: "ＭＳ Ｐゴシック", monospace;
+    font-size: 10px;
+    line-height: 1.05;
+    color: #663300;
+    white-space: pre;
+  }
+  #header h1 {
+    margin: 0;
+    font-size: 26px;
+    color: #cc0000;
+    font-weight: bold;
+    letter-spacing: 1px;
+    text-shadow: 1px 1px 0 #ffffff;
+  }
+  #header .tagline {
+    font-size: 11px;
+    color: #333300;
+    margin-top: 2px;
+  }
+
+  /* パンくず・ナビ */
+  #nav {
+    background-color: #e0e0d0;
+    border-bottom: 1px solid #999;
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+  #nav a {
+    margin-right: 6px;
+  }
+
+  /* メインエリア */
+  #main {
+    padding: 10px;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  hr.sep {
+    border: none;
+    border-top: 1px solid #cc9999;
+    margin: 8px 0;
+  }
+
+  /* スレッド一覧 */
+  .list-title {
+    color: #cc0000;
+    font-size: 15px;
+    font-weight: bold;
+    border-left: 6px solid #cc0000;
+    padding-left: 6px;
+    margin: 12px 0 6px;
+  }
+  ol.thread-list {
+    margin: 0;
+    padding: 0 0 0 26px;
+  }
+  ol.thread-list li {
+    margin-bottom: 3px;
+    line-height: 1.6;
+  }
+  ol.thread-list li a {
+    font-size: 13px;
+  }
+  .res-count {
+    color: #008800;
+    font-size: 12px;
+    margin-left: 4px;
+  }
+  .thread-meta-inline {
+    color: #888;
+    font-size: 11px;
+    margin-left: 6px;
+  }
+
+  /* フォーム */
+  .form-box {
+    background-color: #f5f5e8;
+    border: 1px solid #cc9999;
+    padding: 8px 10px;
+    margin: 12px 0;
+  }
+  .form-box .form-title {
+    color: #cc0000;
+    font-weight: bold;
+    margin-bottom: 6px;
+    font-size: 13px;
+  }
+  .form-box label {
+    display: inline-block;
+    width: 70px;
+    vertical-align: top;
+    color: #333;
+  }
+  .form-box input[type="text"] {
+    font-family: inherit;
+    font-size: 13px;
+    padding: 2px 4px;
+    border: 1px solid #999;
+    width: 260px;
+    max-width: 70%;
+  }
+  .form-box textarea {
+    font-family: inherit;
+    font-size: 13px;
+    padding: 3px 4px;
+    border: 1px solid #999;
+    width: 90%;
+    max-width: 560px;
+    height: 70px;
+    vertical-align: top;
+  }
+  .form-row {
+    margin-bottom: 6px;
+  }
+  .form-box button {
+    font-family: inherit;
+    font-size: 13px;
+    padding: 3px 14px;
+    cursor: pointer;
+    background-color: #ddddcc;
+    border: 1px solid #888;
+  }
+  .form-box button:hover {
+    background-color: #eeeedd;
+  }
+  .sage-option {
+    font-size: 12px;
+    color: #555;
+    margin-left: 8px;
+  }
+
+  /* スレッド表示（レス） */
+  .thread-header {
+    color: #cc0000;
+    font-size: 16px;
+    font-weight: bold;
+    margin: 10px 0 4px;
+  }
+  .post {
+    margin: 0 0 4px 0;
+    padding: 2px 0;
+    word-wrap: break-word;
+  }
+  .post .res-head {
+    font-size: 12px;
+  }
+  .post .res-num {
+    color: #008800;
+    font-weight: bold;
+  }
+  .post .res-name {
+    color: #008000;
+    font-weight: bold;
+  }
+  .post .res-name .cap {
+    color: #ff8000;
+  }
+  .post .res-date {
+    color: #555;
+  }
+  .post .res-id {
+    color: #555;
+  }
+  .post .res-body {
+    margin: 3px 0 3px 24px;
+    line-height: 1.5;
+  }
+  .post.highlight {
+    background-color: #ffffcc;
+    transition: background-color 0.1s;
+  }
+
+  /* アンカー */
+  .anchor {
+    color: #0000ee;
+    cursor: pointer;
+    text-decoration: underline;
+  }
+  .anchor:hover {
+    color: #ff0000;
+  }
+
+  /* アンカーポップアップ */
+  #anchor-popup {
+    position: absolute;
+    display: none;
+    background-color: #ffffee;
+    border: 1px solid #cc9999;
+    box-shadow: 2px 2px 5px rgba(0,0,0,0.3);
+    padding: 6px 8px;
+    max-width: 420px;
+    z-index: 1000;
+    font-size: 12px;
+  }
+  #anchor-popup .res-body {
+    margin-left: 0;
+  }
+
+  /* フッター */
+  #footer {
+    text-align: center;
+    color: #666;
+    font-size: 11px;
+    padding: 16px 10px 24px;
+    margin-top: 20px;
+    border-top: 1px solid #ccc;
+  }
+
+  .back-link {
+    font-size: 12px;
+    margin: 6px 0;
+  }
+
+  .empty-note {
+    color: #888;
+    font-size: 12px;
+    margin: 6px 0;
+  }
+
+  /* レスポンシブ */
+  @media (max-width: 600px) {
+    body { font-size: 14px; }
+    #header h1 { font-size: 20px; }
+    #header pre.ascii { font-size: 8px; }
+    .form-box input[type="text"] { width: 90%; max-width: none; }
+    .form-box label { width: 100%; display: block; margin-bottom: 2px; }
+    .form-box textarea { width: 100%; }
+    #main { padding: 8px; }
+    ol.thread-list { padding-left: 22px; }
+  }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <div class="logo-wrap">
+    <pre class="ascii">    /\_/\
+   ( ^.^ ) &lt;  にゃーん
+    &gt; ^ &lt;   </pre>
+    <div>
+      <h1>にゃんねる</h1>
+      <div class="tagline">〜猫好きが集まる匿名掲示板〜</div>
+    </div>
+  </div>
+</div>
+
+<div id="nav">
+  <a href="#" id="nav-home">■ トップ（スレッド一覧）</a>
+  <span style="color:#666;">| 猫好きのためのまったり掲示板です</span>
+</div>
+
+<div id="main">
+  <div id="content"><!-- JSで描画 --></div>
+</div>
+
+<div id="footer">
+  にゃんねる - 猫好きのための匿名掲示板 ｜ ※このサイトのデータはブラウザのメモリ上でのみ管理され、リロードすると初期状態に戻ります<br>
+  にゃんねる管理人 &lt;nyanmin@example.nyan&gt;
+</div>
+
+<div id="anchor-popup"></div>
+
+<script>
+"use strict";
+
+/* =========================================================
+   にゃんねる - データ管理（すべてメモリ上のJS変数で管理）
+   ========================================================= */
+
+// スレッドデータ。各スレッドは { id, title, posts: [...] }
+// 各レスは { name, body, date, id(ID文字列), sage(bool) }
+let threads = [];
+let nextThreadId = 1;
+
+// 現在の表示状態
+let view = { page: "list", threadId: null };
+
+/* ---------- ユーティリティ ---------- */
+
+// 日付を 2ちゃんねる風フォーマットに（YYYY/MM/DD(曜) HH:MM:SS.ss）
+function formatDate(d) {
+  const days = ["日", "月", "火", "水", "木", "金", "土"];
+  const y = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, "0");
+  const da = String(d.getDate()).padStart(2, "0");
+  const w = days[d.getDay()];
+  const h = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  const s = String(d.getSeconds()).padStart(2, "0");
+  const cs = String(Math.floor(d.getMilliseconds() / 10)).padStart(2, "0");
+  return `${y}/${mo}/${da}(${w}) ${h}:${mi}:${s}.${cs}`;
+}
+
+// IDっぽいランダム文字列を生成（8文字：英数字）
+function makeId() {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  let s = "";
+  for (let i = 0; i < 8; i++) {
+    s += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return s;
+}
+
+// HTMLエスケープ
+function esc(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// 過去日時のDateを作るヘルパー（初期データ用・分単位でずらす）
+function ago(minutes) {
+  return new Date(Date.now() - minutes * 60 * 1000);
+}
+
+/* ---------- 初期サンプルデータ ---------- */
+
+function seedData() {
+  const data = [
+    {
+      title: "猫の可愛さについて語るスレ",
+      posts: [
+        { name: "", body: "うちの猫が可愛すぎて仕事にならない\nみんなの猫自慢を書き込んでいってくれ", min: 720 },
+        { name: "名無しにゃん", body: ">>1\nわかる\n朝起きたら枕元で寝てるの見て毎回悶絶してる", min: 700 },
+        { name: "三毛好き", body: "三毛猫は柄が全部違うのがいいよね\n世界に一匹だけって感じがする", min: 640 },
+        { name: "", body: ">>3\nそれな\nうちのミケも鼻の模様が唯一無二", min: 590 },
+        { name: "名無しにゃん", body: "肉球のにおい嗅ぐの好きなやつ集合\n香ばしい", min: 300 },
+        { name: "", body: ">>5\nポップコーンの匂いって言われてるやつだな\nずっと嗅いでられる", min: 120 },
+      ],
+    },
+    {
+      title: "【緊急】猫が甘えてきて動けない時の対処法",
+      posts: [
+        { name: "", body: "膝の上で寝てしまった\nトイレ行きたいのに動けない\n助けてくれ", min: 480 },
+        { name: "名無しにゃん", body: "諦めろ\nそれが猫飼いの宿命だ", min: 470 },
+        { name: "ベテラン猫奴隷", body: ">>1\n膝掛けごとそっと持ち上げて移動させるテクがある\nが失敗すると恨まれる", min: 455 },
+        { name: "", body: ">>3\nリスク高すぎて草\nもう漏らす覚悟決めるわ", min: 440 },
+        { name: "名無しにゃん", body: "膀胱の限界と猫の可愛さの天秤\n猫が勝つ", min: 60 },
+      ],
+    },
+    {
+      title: "保護猫を迎えた人集まれ〜",
+      posts: [
+        { name: "", body: "先月保護団体から2歳の黒猫を迎えた\n最初は警戒してたけど最近甘えてくるようになって嬉しい", min: 1440 },
+        { name: "名無しにゃん", body: ">>1\nおめでとう\n心開いてくれる瞬間が一番泣ける", min: 1400 },
+        { name: "元野良飼い", body: "うちも元野良\n半年かかってやっと膝に乗ってくれた\n気長にな", min: 1350 },
+        { name: "", body: ">>3\n半年か…\n焦らずいくわ\nありがとう", min: 1300 },
+      ],
+    },
+    {
+      title: "猫の鳴き声を文字で表現するスレ",
+      posts: [
+        { name: "", body: "にゃーん", min: 2000 },
+        { name: "名無しにゃん", body: "みゃっ", min: 1980 },
+        { name: "名無しにゃん", body: "なーごなーご（ご飯の催促）", min: 1900 },
+        { name: "擬音マスター", body: "「あーん」（口だけ開けて声出ない甘え鳴き）\nこれが一番可愛い", min: 1850 },
+        { name: "", body: ">>4\nサイレントニャー最強説\n分かってるじゃないか", min: 1600 },
+        { name: "名無しにゃん", body: "ゴロゴロゴロゴロ…（喉鳴らし）", min: 200 },
+      ],
+    },
+    {
+      title: "うちの猫、こんな変な寝方してるってやつwww",
+      posts: [
+        { name: "", body: "うちの猫、仰向けで手足全開で寝てる\n無防備すぎだろ", min: 900 },
+        { name: "名無しにゃん", body: "ヘソ天か\n信頼されてる証拠やで", min: 880 },
+        { name: "アンモニャイト観測者", body: "うちのはきれいに丸まってアンモナイトになってる\n季節の変わり目で寝方変わるの好き", min: 820 },
+        { name: "", body: ">>3\nアンモニャイトわろた\n冬になると団子になるよな", min: 800 },
+        { name: "名無しにゃん", body: "箱に無理やり詰まって寝てる画像は正義", min: 400 },
+      ],
+    },
+    {
+      title: "キジトラ最強伝説",
+      posts: [
+        { name: "", body: "キジトラの凛々しさは異常\n野生味あふれる柄なのに甘えん坊なギャップがたまらん", min: 660 },
+        { name: "名無しにゃん", body: "キジトラは日本猫の原種に近いらしいな\n丈夫な子が多いイメージ", min: 610 },
+        { name: "", body: ">>2\n確かにうちのキジトラ病気知らずだわ\nよく食べよく寝る", min: 300 },
+      ],
+    },
+  ];
+
+  threads = data.map((t) => {
+    const posts = t.posts.map((p) => ({
+      name: p.name,
+      body: p.body,
+      date: ago(p.min),
+      id: makeId(),
+      sage: false,
+    }));
+    return { id: nextThreadId++, title: t.title, posts: posts };
+  });
+}
+
+/* ---------- 描画：スレッド一覧 ---------- */
+
+function renderList() {
+  const c = document.getElementById("content");
+  let html = "";
+
+  // 新規スレッド作成フォーム
+  html += `
+    <div class="form-box">
+      <div class="form-title">◆ 新規スレッド作成</div>
+      <div class="form-row">
+        <label for="new-title">タイトル</label>
+        <input type="text" id="new-title" maxlength="60" placeholder="スレッドタイトルを入力">
+      </div>
+      <div class="form-row">
+        <label for="new-body">本文</label>
+        <textarea id="new-body" placeholder="1レス目の本文を入力"></textarea>
+      </div>
+      <div class="form-row">
+        <label>&nbsp;</label>
+        <button id="btn-new-thread">スレッドを立てる</button>
+      </div>
+    </div>
+  `;
+
+  html += `<div class="list-title">スレッド一覧</div>`;
+  html += `<hr class="sep">`;
+
+  if (threads.length === 0) {
+    html += `<div class="empty-note">まだスレッドがありません。上のフォームから立ててみてください。</div>`;
+  } else {
+    html += `<ol class="thread-list">`;
+    // レスが新しい順（最終レス日時）で並べる
+    const sorted = threads.slice().sort((a, b) => {
+      const la = a.posts[a.posts.length - 1].date.getTime();
+      const lb = b.posts[b.posts.length - 1].date.getTime();
+      return lb - la;
+    });
+    sorted.forEach((t) => {
+      const last = t.posts[t.posts.length - 1].date;
+      html += `<li>`;
+      html += `<a href="#" class="thread-open" data-id="${t.id}">${esc(t.title)}</a>`;
+      html += `<span class="res-count">(${t.posts.length})</span>`;
+      html += `<span class="thread-meta-inline">最終: ${formatDate(last)}</span>`;
+      html += `</li>`;
+    });
+    html += `</ol>`;
+  }
+
+  c.innerHTML = html;
+
+  // イベント登録
+  document.getElementById("btn-new-thread").addEventListener("click", createThread);
+  document.querySelectorAll(".thread-open").forEach((a) => {
+    a.addEventListener("click", (e) => {
+      e.preventDefault();
+      openThread(parseInt(a.getAttribute("data-id"), 10));
+    });
+  });
+}
+
+/* ---------- 描画：スレッド内表示 ---------- */
+
+function renderThread() {
+  const c = document.getElementById("content");
+  const t = threads.find((x) => x.id === view.threadId);
+  if (!t) {
+    view.page = "list";
+    renderList();
+    return;
+  }
+
+  let html = "";
+  html += `<div class="back-link"><a href="#" id="btn-back">← スレッド一覧に戻る</a></div>`;
+  html += `<div class="thread-header">${esc(t.title)} <span class="res-count">(${t.posts.length})</span></div>`;
+  html += `<hr class="sep">`;
+
+  t.posts.forEach((p, idx) => {
+    const num = idx + 1;
+    const name = p.name && p.name.trim() !== "" ? p.name : "名無しにゃん";
+    html += `<div class="post" id="res-${num}">`;
+    html += `<div class="res-head">`;
+    html += `<span class="res-num">${num}</span> `;
+    html += `：<span class="res-name">${esc(name)}</span> `;
+    html += `：<span class="res-date">${formatDate(p.date)}</span> `;
+    html += `<span class="res-id">ID:${esc(p.id)}</span>`;
+    if (p.sage) html += ` <span style="color:#888;">[sage]</span>`;
+    html += `</div>`;
+    html += `<div class="res-body">${renderBody(p.body)}</div>`;
+    html += `</div>`;
+  });
+
+  html += `<hr class="sep">`;
+
+  // 書き込みフォーム
+  html += `
+    <div class="form-box">
+      <div class="form-title">◆ この話題に書き込む</div>
+      <div class="form-row">
+        <label for="post-name">名前</label>
+        <input type="text" id="post-name" maxlength="40" placeholder="名無しにゃん">
+      </div>
+      <div class="form-row">
+        <label for="post-body">本文</label>
+        <textarea id="post-body" placeholder="本文を入力（>>1 でアンカーになります）"></textarea>
+      </div>
+      <div class="form-row">
+        <label>&nbsp;</label>
+        <button id="btn-post">書き込む</button>
+        <label class="sage-option" style="width:auto;display:inline;">
+          <input type="checkbox" id="post-sage"> sage（上げない）
+        </label>
+      </div>
+    </div>
+  `;
+
+  html += `<div class="back-link"><a href="#" id="btn-back2">← スレッド一覧に戻る</a></div>`;
+
+  c.innerHTML = html;
+
+  // イベント登録
+  document.getElementById("btn-back").addEventListener("click", (e) => { e.preventDefault(); goList(); });
+  document.getElementById("btn-back2").addEventListener("click", (e) => { e.preventDefault(); goList(); });
+  document.getElementById("btn-post").addEventListener("click", () => addPost(t.id));
+
+  attachAnchorEvents();
+  window.scrollTo(0, 0);
+}
+
+/* ---------- 本文レンダリング（改行＋アンカー変換） ---------- */
+
+function renderBody(body) {
+  // まずエスケープ
+  let safe = esc(body);
+  // >>数字 をアンカー化（複数レス >>1-3 は簡易に先頭番号へ）
+  safe = safe.replace(/&gt;&gt;(\d+)/g, (m, n) => {
+    return `<span class="anchor" data-target="${n}">&gt;&gt;${n}</span>`;
+  });
+  // 改行を <br>
+  safe = safe.replace(/\n/g, "<br>");
+  return safe;
+}
+
+/* ---------- アンカーのジャンプ＆ポップアップ ---------- */
+
+function attachAnchorEvents() {
+  const popup = document.getElementById("anchor-popup");
+
+  document.querySelectorAll(".anchor").forEach((a) => {
+    const target = parseInt(a.getAttribute("data-target"), 10);
+
+    // クリックでジャンプ＋ハイライト
+    a.addEventListener("click", (e) => {
+      e.preventDefault();
+      const el = document.getElementById("res-" + target);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.classList.add("highlight");
+        setTimeout(() => el.classList.remove("highlight"), 1500);
+      }
+    });
+
+    // ホバーでポップアップ表示
+    a.addEventListener("mouseenter", (e) => {
+      const t = threads.find((x) => x.id === view.threadId);
+      if (!t) return;
+      const p = t.posts[target - 1];
+      if (!p) return;
+      const name = p.name && p.name.trim() !== "" ? p.name : "名無しにゃん";
+      popup.innerHTML =
+        `<div class="res-head"><span class="res-num">${target}</span> ：` +
+        `<span class="res-name">${esc(name)}</span> ：` +
+        `<span class="res-date">${formatDate(p.date)}</span> ` +
+        `<span class="res-id">ID:${esc(p.id)}</span></div>` +
+        `<div class="res-body">${renderBody(p.body)}</div>`;
+      popup.style.display = "block";
+      positionPopup(e, popup);
+    });
+
+    a.addEventListener("mousemove", (e) => {
+      if (popup.style.display === "block") positionPopup(e, popup);
+    });
+
+    a.addEventListener("mouseleave", () => {
+      popup.style.display = "none";
+      popup.innerHTML = "";
+    });
+  });
+}
+
+function positionPopup(e, popup) {
+  const offset = 14;
+  let x = e.pageX + offset;
+  let y = e.pageY + offset;
+  const pw = popup.offsetWidth;
+  const vw = document.documentElement.clientWidth;
+  // 右端はみ出し防止
+  if (x + pw > window.scrollX + vw) {
+    x = e.pageX - pw - offset;
+    if (x < window.scrollX) x = window.scrollX + 4;
+  }
+  popup.style.left = x + "px";
+  popup.style.top = y + "px";
+}
+
+/* ---------- アクション：スレッド作成 ---------- */
+
+function createThread() {
+  const titleEl = document.getElementById("new-title");
+  const bodyEl = document.getElementById("new-body");
+  const title = titleEl.value.trim();
+  const body = bodyEl.value.trim();
+
+  if (title === "") {
+    alert("スレッドタイトルを入力してください。");
+    titleEl.focus();
+    return;
+  }
+  if (body === "") {
+    alert("本文（1レス目）を入力してください。");
+    bodyEl.focus();
+    return;
+  }
+
+  const newThread = {
+    id: nextThreadId++,
+    title: title,
+    posts: [
+      { name: "", body: body, date: new Date(), id: makeId(), sage: false },
+    ],
+  };
+  threads.push(newThread);
+
+  // 作成したスレッドを開く
+  openThread(newThread.id);
+}
+
+/* ---------- アクション：レス書き込み ---------- */
+
+function addPost(threadId) {
+  const t = threads.find((x) => x.id === threadId);
+  if (!t) return;
+
+  const nameEl = document.getElementById("post-name");
+  const bodyEl = document.getElementById("post-body");
+  const sageEl = document.getElementById("post-sage");
+
+  const name = nameEl.value.trim();
+  const body = bodyEl.value.trim();
+  const sage = sageEl.checked;
+
+  if (body === "") {
+    alert("本文を入力してください。");
+    bodyEl.focus();
+    return;
+  }
+
+  t.posts.push({
+    name: name,          // 空欄なら表示時に「名無しにゃん」
+    body: body,
+    date: new Date(),
+    id: makeId(),
+    sage: sage,          // sageならスレッドを上げない（一覧の並びは最終レス日時なので影響）
+  });
+
+  // 再描画。sageでなければ最新レスへスクロールされるようリレンダ
+  const targetNum = t.posts.length;
+  renderThread();
+  const el = document.getElementById("res-" + targetNum);
+  if (el) {
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("highlight");
+    setTimeout(() => el.classList.remove("highlight"), 1500);
+  }
+}
+
+/* ---------- ナビゲーション ---------- */
+
+function openThread(id) {
+  view.page = "thread";
+  view.threadId = id;
+  renderThread();
+}
+
+function goList() {
+  view.page = "list";
+  view.threadId = null;
+  renderList();
+  window.scrollTo(0, 0);
+}
+
+/* ---------- 起動 ---------- */
+
+document.getElementById("nav-home").addEventListener("click", (e) => {
+  e.preventDefault();
+  goList();
+});
+
+seedData();
+renderList();
+
+</script>
+
+</body>
+</html>
