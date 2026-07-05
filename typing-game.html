@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Typing Dojo — タイピング練習</title>
+<style>
+  /* ==========================================================================
+     カラーテーマ (ダークテーマ)
+     ここの CSS 変数を書き換えると全体の配色を一括で変更できます
+     ========================================================================== */
+  :root {
+    --bg:        #0d1117;   /* 背景 */
+    --bg-panel:  #161b22;   /* パネル背景 */
+    --bg-panel2: #1c2430;   /* パネル背景 (濃いめ) */
+    --border:    #30363d;   /* 枠線 */
+    --text:      #e6edf3;   /* 通常テキスト */
+    --text-dim:  #8b949e;   /* 補助テキスト */
+    --accent:    #58a6ff;   /* アクセント (青) */
+    --accent2:   #bc8cff;   /* アクセント2 (紫) */
+    --correct:   #3fb950;   /* 正解 (緑) */
+    --wrong:     #f85149;   /* ミス (赤) */
+    --gold:      #f2cc60;   /* ハイスコア (金) */
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    height: 100%;
+  }
+
+  body {
+    font-family: "Segoe UI", "Hiragino Kaku Gothic ProN", "Meiryo", system-ui, sans-serif;
+    background:
+      radial-gradient(circle at 20% 0%, rgba(88,166,255,0.12), transparent 40%),
+      radial-gradient(circle at 80% 100%, rgba(188,140,255,0.12), transparent 40%),
+      var(--bg);
+    color: var(--text);
+    min-height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .app {
+    width: 100%;
+    max-width: 760px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    padding: 28px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* --- 画面が揺れるアニメーション (正解/ミスの視覚フィードバック) --- */
+  @keyframes shakeCorrect {
+    0%,100% { transform: translateX(0); }
+    50%     { transform: translateX(4px); }
+  }
+  @keyframes shakeWrong {
+    0%,100% { transform: translateX(0); }
+    20%     { transform: translateX(-7px); }
+    40%     { transform: translateX(7px); }
+    60%     { transform: translateX(-5px); }
+    80%     { transform: translateX(5px); }
+  }
+  .app.flash-correct { animation: shakeCorrect 0.12s ease; }
+  .app.flash-wrong   { animation: shakeWrong 0.25s ease; }
+
+  /* 画面の光るオーバーレイ (正解=緑 / ミス=赤) */
+  .glow {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    border-radius: 18px;
+  }
+  .glow.correct { box-shadow: inset 0 0 60px rgba(63,185,80,0.55);  }
+  .glow.wrong   { box-shadow: inset 0 0 60px rgba(248,81,73,0.55);  }
+  .glow.show { animation: glowFade 0.35s ease; }
+  @keyframes glowFade {
+    0%   { opacity: 1; }
+    100% { opacity: 0; }
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 22px;
+  }
+  header h1 {
+    font-size: 26px;
+    letter-spacing: 1px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  header p {
+    color: var(--text-dim);
+    font-size: 13px;
+    margin-top: 4px;
+  }
+
+  /* --- 設定エリア (モード / 難易度) --- */
+  .settings {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    justify-content: center;
+    margin-bottom: 22px;
+  }
+  .setting-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: center;
+  }
+  .setting-group .label {
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .btn-row { display: flex; gap: 6px; }
+  .toggle {
+    background: var(--bg-panel2);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 7px 14px;
+    border-radius: 10px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .toggle:hover { border-color: var(--accent); color: var(--text); }
+  .toggle.active {
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    color: #fff;
+    border-color: transparent;
+    font-weight: 600;
+  }
+
+  /* --- ステータスバー (時間 / WPM / 正確率) --- */
+  .status {
+    display: flex;
+    justify-content: space-around;
+    background: var(--bg-panel2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px;
+    margin-bottom: 20px;
+  }
+  .stat { text-align: center; }
+  .stat .v { font-size: 24px; font-weight: 700; }
+  .stat .k { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
+  #timeVal.low { color: var(--wrong); }
+
+  /* --- タイピング表示エリア --- */
+  .stage {
+    background: var(--bg-panel2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 26px 22px;
+    min-height: 150px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 14px;
+    margin-bottom: 20px;
+  }
+  /* ひらがな (お題) 表示。英単語モードでは非表示 */
+  .prompt-jp {
+    font-size: 24px;
+    text-align: center;
+    color: var(--accent2);
+    letter-spacing: 2px;
+    min-height: 30px;
+  }
+  /* 入力対象の文字列 (ローマ字 or 英単語) */
+  .prompt-target {
+    font-size: 30px;
+    text-align: center;
+    font-family: "SFMono-Regular", "Consolas", monospace;
+    letter-spacing: 2px;
+    word-break: break-word;
+    line-height: 1.5;
+  }
+  .prompt-target .ch { transition: color 0.05s, background 0.05s; padding: 0 1px; }
+  .prompt-target .ch.done    { color: var(--correct); }          /* 入力済み(正解) */
+  .prompt-target .ch.err     { color: var(--wrong); background: rgba(248,81,73,0.18); border-radius: 3px; } /* ミスした位置 */
+  .prompt-target .ch.current { color: var(--text); background: var(--accent); border-radius: 3px; color:#fff; }/* 現在位置 */
+  .prompt-target .ch.pending { color: var(--text-dim); }         /* 未入力 */
+
+  .hint {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 12px;
+  }
+
+  /* --- 中央のメッセージ / 開始画面 --- */
+  .center-msg {
+    text-align: center;
+    color: var(--text-dim);
+    font-size: 15px;
+    line-height: 1.8;
+  }
+
+  /* --- スタートボタン --- */
+  .actions { text-align: center; }
+  .btn-primary {
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    color: #fff;
+    border: none;
+    padding: 14px 40px;
+    font-size: 17px;
+    font-weight: 700;
+    border-radius: 12px;
+    cursor: pointer;
+    letter-spacing: 1px;
+    transition: transform 0.1s, box-shadow 0.2s;
+    box-shadow: 0 6px 20px rgba(88,166,255,0.35);
+  }
+  .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(88,166,255,0.5); }
+  .btn-primary:active { transform: translateY(0); }
+
+  /* --- 結果画面 --- */
+  .result { text-align: center; }
+  .result h2 {
+    font-size: 22px;
+    margin-bottom: 6px;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .result-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+    margin: 20px 0;
+  }
+  .result-card {
+    background: var(--bg-panel2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px;
+  }
+  .result-card .v { font-size: 30px; font-weight: 800; }
+  .result-card .k { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+  .result-card.wpm .v   { color: var(--accent); }
+  .result-card.acc .v   { color: var(--correct); }
+  .result-card.hit .v   { color: var(--text); }
+  .result-card.miss .v  { color: var(--wrong); }
+
+  /* ハイスコア比較バナー */
+  .highscore-banner {
+    background: var(--bg-panel2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 14px;
+    margin-bottom: 18px;
+    font-size: 14px;
+  }
+  .highscore-banner .big { color: var(--gold); font-weight: 700; font-size: 16px; }
+  .highscore-banner .up   { color: var(--correct); font-weight: 700; }
+  .highscore-banner .down { color: var(--text-dim); }
+
+  /* 表示切り替え用ユーティリティ */
+  .hidden { display: none !important; }
+
+  /* --- スマホ対応 --- */
+  @media (max-width: 540px) {
+    .app { padding: 18px; border-radius: 14px; }
+    header h1 { font-size: 21px; }
+    .prompt-target { font-size: 23px; }
+    .prompt-jp { font-size: 20px; }
+    .stat .v { font-size: 20px; }
+    .result-card .v { font-size: 24px; }
+    .btn-primary { width: 100%; }
+  }
+</style>
+</head>
+<body>
+  <div class="app" id="app">
+    <!-- 正解/ミス時に光るオーバーレイ -->
+    <div class="glow" id="glow"></div>
+
+    <header>
+      <h1>⌨ Typing Dojo</h1>
+      <p>60秒タイムアタック・タイピング練習</p>
+    </header>
+
+    <!-- 設定: モードと難易度 -->
+    <div class="settings">
+      <div class="setting-group">
+        <span class="label">モード</span>
+        <div class="btn-row" id="modeRow">
+          <button class="toggle active" data-mode="jp">日本語(ローマ字)</button>
+          <button class="toggle" data-mode="en">英単語</button>
+        </div>
+      </div>
+      <div class="setting-group">
+        <span class="label">難易度</span>
+        <div class="btn-row" id="diffRow">
+          <button class="toggle active" data-diff="easy">初級</button>
+          <button class="toggle" data-diff="normal">中級</button>
+          <button class="toggle" data-diff="hard">上級</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ステータスバー -->
+    <div class="status">
+      <div class="stat"><div class="v" id="timeVal">60</div><div class="k">残り秒</div></div>
+      <div class="stat"><div class="v" id="wpmVal">0</div><div class="k">WPM</div></div>
+      <div class="stat"><div class="v" id="accVal">100%</div><div class="k">正確率</div></div>
+    </div>
+
+    <!-- タイピング表示 / 開始画面 / 結果画面 が切り替わる -->
+    <div class="stage" id="stage">
+      <!-- 開始前メッセージ -->
+      <div class="center-msg" id="startMsg">
+        <p>スタートボタンを押すか <b>Enter</b> キーでゲーム開始！</p>
+        <p style="font-size:13px;margin-top:8px;">正しい文字は<span style="color:var(--correct)">緑</span>、ミスは<span style="color:var(--wrong)">赤</span>で表示されます。</p>
+      </div>
+
+      <!-- プレイ中の表示 (最初は非表示) -->
+      <div id="playArea" class="hidden">
+        <div class="prompt-jp" id="promptJp"></div>
+        <div class="prompt-target" id="promptTarget"></div>
+        <div class="hint" id="hint"></div>
+      </div>
+
+      <!-- 結果画面 (最初は非表示) -->
+      <div id="resultArea" class="result hidden">
+        <div class="highscore-banner" id="highscoreBanner"></div>
+        <h2 id="resultTitle">結果</h2>
+        <div class="result-grid">
+          <div class="result-card wpm"><div class="v" id="rWpm">0</div><div class="k">WPM</div></div>
+          <div class="result-card acc"><div class="v" id="rAcc">0%</div><div class="k">正確率</div></div>
+          <div class="result-card hit"><div class="v" id="rHit">0</div><div class="k">正解数</div></div>
+          <div class="result-card miss"><div class="v" id="rMiss">0</div><div class="k">ミス数</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- アクションボタン -->
+    <div class="actions">
+      <button class="btn-primary" id="startBtn">スタート ▶</button>
+    </div>
+  </div>
+
+<script>
+/* ==========================================================================
+   単語リスト
+   --------------------------------------------------------------------------
+   ★ 単語を追加したい場合はここに追記するだけでOKです。
+     - 日本語モード (WORDS.jp): { jp: "ひらがな表示", romaji: "代表的なローマ字" }
+       ※ ローマ字の複数表記(し=si/shi 等)は下の ROMAJI_TABLE で自動生成するため、
+         ここには読みやすい代表形を1つ書けば大丈夫です。
+     - 英単語モード (WORDS.en): 文字列をそのまま追加。
+   各モード・各難易度とも 30 個以上を用意しています。
+   ========================================================================== */
+const WORDS = {
+  jp: {
+    // 初級: 短い単語
+    easy: [
+      { jp: "ねこ",      romaji: "neko" },
+      { jp: "いぬ",      romaji: "inu" },
+      { jp: "そら",      romaji: "sora" },
+      { jp: "うみ",      romaji: "umi" },
+      { jp: "やま",      romaji: "yama" },
+      { jp: "はな",      romaji: "hana" },
+      { jp: "みず",      romaji: "mizu" },
+      { jp: "つき",      romaji: "tuki" },
+      { jp: "ほし",      romaji: "hosi" },
+      { jp: "とり",      romaji: "tori" },
+      { jp: "さかな",    romaji: "sakana" },
+      { jp: "くるま",    romaji: "kuruma" },
+      { jp: "でんわ",    romaji: "denwa" },
+      { jp: "がっこう",  romaji: "gakkou" },
+      { jp: "ともだち",  romaji: "tomodachi" },
+      { jp: "せんせい",  romaji: "sensei" },
+      { jp: "たべもの",  romaji: "tabemono" },
+      { jp: "のみもの",  romaji: "nomimono" },
+      { jp: "しんぶん",  romaji: "sinbun" },
+      { jp: "でんしゃ",  romaji: "densha" },
+      { jp: "ひこうき",  romaji: "hikouki" },
+      { jp: "こんにちは",romaji: "konnichiwa" },
+      { jp: "ありがとう",romaji: "arigatou" },
+      { jp: "さようなら",romaji: "sayounara" },
+      { jp: "おはよう",  romaji: "ohayou" },
+      { jp: "げんき",    romaji: "genki" },
+      { jp: "しごと",    romaji: "sigoto" },
+      { jp: "やさい",    romaji: "yasai" },
+      { jp: "くだもの",  romaji: "kudamono" },
+      { jp: "てんき",    romaji: "tenki" },
+      { jp: "おんがく",  romaji: "ongaku" },
+      { jp: "えいが",    romaji: "eiga" }
+    ],
+    // 中級: 普通の長さの単語
+    normal: [
+      { jp: "としょかん",      romaji: "toshokan" },
+      { jp: "びょういん",      romaji: "byouin" },
+      { jp: "ゆうびんきょく",  romaji: "yuubinkyoku" },
+      { jp: "レストラン",      romaji: "resutoran" },
+      { jp: "コンビニ",        romaji: "konbini" },
+      { jp: "しんかんせん",    romaji: "shinkansen" },
+      { jp: "つくえのうえ",    romaji: "tsukuenoue" },
+      { jp: "あたらしいくつ",  romaji: "atarasiikutu" },
+      { jp: "おいしいりょうり",romaji: "oisiiryouri" },
+      { jp: "きれいなはな",    romaji: "kireinahana" },
+      { jp: "たのしいじかん",  romaji: "tanosiijikan" },
+      { jp: "しゃしんをとる",  romaji: "shashinwotoru" },
+      { jp: "きょうしつ",      romaji: "kyoushitu" },
+      { jp: "ちかてつ",        romaji: "chikatetu" },
+      { jp: "くうこう",        romaji: "kuukou" },
+      { jp: "みなとまち",      romaji: "minatomachi" },
+      { jp: "おまつり",        romaji: "omaturi" },
+      { jp: "はなびたいかい",  romaji: "hanabitaikai" },
+      { jp: "うんどうかい",    romaji: "undoukai" },
+      { jp: "たんじょうび",    romaji: "tanjoubi" },
+      { jp: "なつやすみ",      romaji: "natuyasumi" },
+      { jp: "ふゆやすみ",      romaji: "huyuyasumi" },
+      { jp: "しゅくだい",      romaji: "shukudai" },
+      { jp: "べんきょう",      romaji: "benkyou" },
+      { jp: "うんてんする",    romaji: "untensuru" },
+      { jp: "りょこうする",    romaji: "ryokousuru" },
+      { jp: "かいものする",    romaji: "kaimonosuru" },
+      { jp: "そうじする",      romaji: "soujisuru" },
+      { jp: "せんたくする",    romaji: "sentakusuru" },
+      { jp: "りょうりする",    romaji: "ryourisuru" },
+      { jp: "でんしレンジ",    romaji: "denshirenji" },
+      { jp: "れいぞうこ",      romaji: "reizouko" }
+    ],
+    // 上級: 長文
+    hard: [
+      { jp: "きょうはいいてんきですね",        romaji: "kyouhaiitenkidesune" },
+      { jp: "あしたはあめがふるでしょう",      romaji: "asitahaamegahurudeshou" },
+      { jp: "まいにちべんきょうしています",    romaji: "mainichibenkyousiteimasu" },
+      { jp: "しゅうまつにえいがをみました",    romaji: "shuumatunieigawomimasita" },
+      { jp: "でんしゃがおくれています",        romaji: "denshagaokureteimasu" },
+      { jp: "あたらしいしごとをはじめました",  romaji: "atarasiisigotowohajimemasita" },
+      { jp: "ともだちとしょくじにいきます",    romaji: "tomodachitoshokujiniikimasu" },
+      { jp: "にほんごのべんきょうはたのしい",  romaji: "nihongonobenkyouhatanosii" },
+      { jp: "らいねんかいがいにいきたい",      romaji: "rainenkaigainiikitai" },
+      { jp: "けんこうのためにうんどうする",    romaji: "kenkounotameniundousuru" },
+      { jp: "あさごはんをたべてからでかける",  romaji: "asagohanwotabetekaradekakeru" },
+      { jp: "つぎのえきでのりかえます",        romaji: "tuginoekidenorikaemasu" },
+      { jp: "みんなでいっしょにうたおう",      romaji: "minnadeisshouniutaou" },
+      { jp: "しつもんがあればてをあげて",      romaji: "situmongaarebateageatete" },
+      { jp: "ゆっくりやすんでください",        romaji: "yukkuriyasundekudasai" },
+      { jp: "がんばってべんきょうしよう",      romaji: "ganbattebenkyousiyou" },
+      { jp: "たくさんのひとがあつまった",      romaji: "takusannohitogaatumatta" },
+      { jp: "うつくしいけしきがひろがる",      romaji: "utukusiikesikigahirogaru" },
+      { jp: "こうえんでさんぽをしました",      romaji: "kouendesanpowosimasita" },
+      { jp: "しんせつなひとにであった",        romaji: "sinsetunahitonideatta" },
+      { jp: "あたらしいことにちょうせんする",  romaji: "atarasiikotonichousensuru" },
+      { jp: "しっぱいをおそれずすすもう",      romaji: "sippaiwoosorezususumou" },
+      { jp: "じかんをたいせつにつかう",        romaji: "jikanwotaisetunitukau" },
+      { jp: "ゆめにむかってがんばる",          romaji: "yumenimukattoganbaru" },
+      { jp: "けいけんがちからになる",          romaji: "keikengachikaraninaru" },
+      { jp: "まいあさはやおきをする",          romaji: "maiasahayaokiwosuru" },
+      { jp: "ほんをよむのがすきです",          romaji: "honwoyomunogasukidesu" },
+      { jp: "おんがくをききながらあるく",      romaji: "ongakuwokikinagaraaruku" },
+      { jp: "りょうりのれんしゅうをする",      romaji: "ryourinorensyuuwosuru" },
+      { jp: "しゃかいのためにこうけんする",    romaji: "shakainotamenikoukensuru" },
+      { jp: "かぞくとのじかんをたのしむ",      romaji: "kazokutonojikanwotanosimu" },
+      { jp: "あきらめずにつづけることがだいじ",romaji: "akiramezunitudukerukotogadaiji" }
+    ]
+  },
+  en: {
+    // 初級: 短い英単語
+    easy: [
+      "cat","dog","sun","moon","star","book","tree","fish","bird","milk",
+      "rain","snow","fire","gold","blue","cake","door","road","game","song",
+      "hand","time","play","jump","walk","read","code","cool","fast","kind",
+      "wind","leaf"
+    ],
+    // 中級: 普通の英単語
+    normal: [
+      "keyboard","monitor","internet","computer","language","practice","develop","function",
+      "variable","program","website","browser","machine","science","picture","holiday",
+      "morning","evening","weather","station","library","kitchen","garden","mountain",
+      "history","teacher","student","company","freedom","promise","journey","balance"
+    ],
+    // 上級: 長文
+    hard: [
+      "The quick brown fox jumps over the lazy dog",
+      "Practice makes perfect when you keep on trying",
+      "A journey of a thousand miles begins with a single step",
+      "Every day is a new chance to learn something great",
+      "Typing fast requires focus patience and repetition",
+      "The early bird catches the worm every morning",
+      "Success is the sum of small efforts repeated daily",
+      "Knowledge is power but wisdom is knowing how to use it",
+      "Do not wait for opportunity create it yourself",
+      "The best way to predict the future is to invent it",
+      "Believe you can and you are already halfway there",
+      "Great things never come from comfort zones ever",
+      "Learning never exhausts the curious human mind",
+      "Actions speak much louder than any spoken words",
+      "The only limit to our growth is our own doubt",
+      "Hard work beats talent when talent does not work",
+      "Turn your wounds into wisdom and keep moving forward",
+      "Dream big and dare to fail without any fear",
+      "Quality is not an act it is a lasting habit",
+      "Focus on progress not on chasing perfection today",
+      "A smooth sea never made a skilled sailor strong",
+      "Small steps every day lead to big results later",
+      "Discipline is the bridge between goals and success",
+      "Stay hungry stay foolish and keep on building",
+      "The future belongs to those who prepare for it",
+      "Patience and persistence conquer all difficult things",
+      "Your only limit is the one you set in your mind",
+      "Consistency is more important than raw intensity",
+      "Mistakes are proof that you are truly trying hard",
+      "Push yourself because no one else will do it for you",
+      "The secret of getting ahead is simply getting started",
+      "Keep your eyes on the stars and feet on the ground"
+    ]
+  }
+};
+
+/* ==========================================================================
+   ローマ字ゆらぎテーブル
+   --------------------------------------------------------------------------
+   「し=si/shi」「つ=tu/tsu」等、複数のローマ字表記を許容するための変換表です。
+   代表形(romaji)を実際に打てる別表記へ展開します。
+   ★ 許容表記を増やしたい場合はここに [パターン, [許容する打ち方...]] を追加します。
+   長いパターン(3文字→2文字)を先に置くことで優先的にマッチさせます。
+   ========================================================================== */
+const ROMAJI_VARIANTS = [
+  // 拗音・特殊 (長いものを先に)
+  ["shi", ["shi","si"]],
+  ["chi", ["chi","ti"]],
+  ["tsu", ["tsu","tu"]],
+  ["sha", ["sha","sya"]],
+  ["shu", ["shu","syu"]],
+  ["sho", ["sho","syo"]],
+  ["cha", ["cha","tya"]],
+  ["chu", ["chu","tyu"]],
+  ["cho", ["cho","tyo"]],
+  ["ja",  ["ja","zya","jya"]],
+  ["ju",  ["ju","zyu","jyu"]],
+  ["jo",  ["jo","zyo","jyo"]],
+  ["fu",  ["fu","hu"]],
+  ["ji",  ["ji","zi"]],
+  // 単音
+  ["si",  ["si","shi"]],
+  ["ti",  ["ti","chi"]],
+  ["tu",  ["tu","tsu"]],
+  ["hu",  ["hu","fu"]],
+  ["zi",  ["zi","ji"]]
+];
+
+/* 代表ローマ字を「各文字位置で許容される文字集合の配列」に変換する。
+   例: "sushi" -> [ {su}, {shi/si} ... ] を平坦化し、位置ごとの許容文字を求める。
+   実装をシンプルにするため、"打つべき正規シーケンス(target)" と
+   "各位置で代替入力を許可するためのマップ" を返す。 */
+function buildTypingSpec(romaji) {
+  // romaji を分割: できるだけ長い variant パターンにマッチさせ、
+  // 各セグメントの「許容表記リスト」を作る。
+  const segments = [];
+  let i = 0;
+  while (i < romaji.length) {
+    let matched = null;
+    // ROMAJI_VARIANTS を長い順に確認
+    for (const [pat, alts] of ROMAJI_VARIANTS) {
+      if (romaji.startsWith(pat, i)) {
+        matched = { canonical: pat, alts: alts.slice() };
+        i += pat.length;
+        break;
+      }
+    }
+    if (!matched) {
+      // 通常の1文字
+      const c = romaji[i];
+      segments.push({ canonical: c, alts: [c] });
+      i += 1;
+    } else {
+      segments.push(matched);
+    }
+  }
+  return segments; // [{canonical, alts:[...]}...]
+}
+
+/* ==========================================================================
+   ゲーム状態
+   ========================================================================== */
+const GAME_SECONDS = 60;          // 1ゲームの制限時間(秒)
+let state = {
+  mode: "jp",                     // "jp" | "en"
+  diff: "easy",                   // "easy" | "normal" | "hard"
+  running: false,
+  timeLeft: GAME_SECONDS,
+  timerId: null,
+  // 現在のお題
+  segments: [],                   // 日本語: buildTypingSpec の結果 / 英語: 1文字ずつ
+  displayJp: "",                  // ひらがな表示
+  typedIndex: 0,                  // 今どのセグメントまで入力済みか
+  segCharIndex: 0,                // セグメント内で何文字入力したか
+  currentAltFilter: null,         // 現在のセグメントで確定しつつある候補(絞り込み)
+  // 集計
+  correctChars: 0,                // 正解タイプ数
+  missChars: 0,                   // ミスタイプ数
+  wordsCompleted: 0               // 完了した単語数(参考)
+};
+
+// ハイスコアはゲーム中のみ変数で保持 (前回スコアとの比較用)
+let highScore = { wpm: 0, acc: 0 };   // これまでの最高
+let lastScore = null;                 // 直前のスコア
+
+/* ==========================================================================
+   DOM 参照
+   ========================================================================== */
+const el = {
+  app:        document.getElementById("app"),
+  glow:       document.getElementById("glow"),
+  timeVal:    document.getElementById("timeVal"),
+  wpmVal:     document.getElementById("wpmVal"),
+  accVal:     document.getElementById("accVal"),
+  stage:      document.getElementById("stage"),
+  startMsg:   document.getElementById("startMsg"),
+  playArea:   document.getElementById("playArea"),
+  resultArea: document.getElementById("resultArea"),
+  promptJp:   document.getElementById("promptJp"),
+  promptTarget: document.getElementById("promptTarget"),
+  hint:       document.getElementById("hint"),
+  startBtn:   document.getElementById("startBtn"),
+  modeRow:    document.getElementById("modeRow"),
+  diffRow:    document.getElementById("diffRow"),
+  // 結果
+  rWpm:  document.getElementById("rWpm"),
+  rAcc:  document.getElementById("rAcc"),
+  rHit:  document.getElementById("rHit"),
+  rMiss: document.getElementById("rMiss"),
+  highscoreBanner: document.getElementById("highscoreBanner")
+};
+
+/* ==========================================================================
+   設定切り替え (モード / 難易度)
+   ========================================================================== */
+el.modeRow.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-mode]");
+  if (!btn || state.running) return;   // プレイ中は変更不可
+  state.mode = btn.dataset.mode;
+  setActive(el.modeRow, btn);
+});
+el.diffRow.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-diff]");
+  if (!btn || state.running) return;
+  state.diff = btn.dataset.diff;
+  setActive(el.diffRow, btn);
+});
+function setActive(row, btn) {
+  row.querySelectorAll(".toggle").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+}
+
+/* ==========================================================================
+   ゲーム開始
+   ========================================================================== */
+el.startBtn.addEventListener("click", startGame);
+
+// Enter キーでも開始 (プレイ中でなければ)
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !state.running) {
+    startGame();
+    return;
+  }
+  if (state.running) {
+    handleTyping(e);
+  }
+});
+
+function startGame() {
+  // 状態リセット
+  state.running = true;
+  state.timeLeft = GAME_SECONDS;
+  state.correctChars = 0;
+  state.missChars = 0;
+  state.wordsCompleted = 0;
+
+  // 画面切り替え
+  el.startMsg.classList.add("hidden");
+  el.resultArea.classList.add("hidden");
+  el.playArea.classList.remove("hidden");
+  el.startBtn.textContent = "プレイ中…";
+  el.startBtn.disabled = true;
+
+  updateStatus();
+  nextWord();
+
+  // カウントダウンタイマー
+  state.timerId = setInterval(() => {
+    state.timeLeft--;
+    if (state.timeLeft <= 0) {
+      state.timeLeft = 0;
+      updateStatus();
+      endGame();
+    } else {
+      updateStatus();
+    }
+  }, 1000);
+}
+
+/* 次のお題を選ぶ */
+function nextWord() {
+  const pool = WORDS[state.mode][state.diff];
+  const idx = Math.floor(Math.random() * pool.length);
+
+  if (state.mode === "jp") {
+    const item = pool[idx];
+    state.displayJp = item.jp;
+    state.segments = buildTypingSpec(item.romaji);
+  } else {
+    // 英語モード: 表示なし、1文字ずつセグメント化
+    const word = pool[idx];
+    state.displayJp = "";
+    state.segments = word.split("").map(c => ({ canonical: c, alts: [c] }));
+  }
+  state.typedIndex = 0;
+  state.segCharIndex = 0;
+  state.currentAltFilter = null;
+  renderPrompt();
+}
+
+/* ==========================================================================
+   お題の描画
+   セグメントを1文字ずつ <span> に展開し、状態に応じて色付けする。
+   日本語のゆらぎ表記に対応するため、「現在絞り込まれている候補」があれば
+   それを、なければ canonical(代表形)を表示する。
+   ========================================================================== */
+function renderPrompt() {
+  // ひらがな表示 (英語モードは空)
+  el.promptJp.textContent = state.displayJp;
+
+  let html = "";
+  for (let s = 0; s < state.segments.length; s++) {
+    const seg = state.segments[s];
+    // このセグメントで表示する文字列を決める
+    let text;
+    if (s < state.typedIndex) {
+      text = chosenText(seg, s);     // 入力済みは実際に打った候補で表示
+    } else if (s === state.typedIndex && state.currentAltFilter) {
+      text = state.currentAltFilter; // 入力中: 絞り込まれた候補
+    } else {
+      text = seg.alts[0];            // 未入力は先頭候補
+    }
+
+    for (let c = 0; c < text.length; c++) {
+      let cls = "pending";
+      if (s < state.typedIndex) {
+        cls = "done";
+      } else if (s === state.typedIndex) {
+        if (c < state.segCharIndex) cls = "done";
+        else if (c === state.segCharIndex) cls = "current";
+        else cls = "pending";
+      }
+      html += `<span class="ch ${cls}">${escapeHtml(text[c])}</span>`;
+    }
+  }
+  el.promptTarget.innerHTML = html;
+}
+
+// 入力確定済みセグメントの表示テキスト (実際に選ばれた候補を保持)
+const chosenTexts = [];
+function chosenText(seg, index) {
+  return chosenTexts[index] !== undefined ? chosenTexts[index] : seg.alts[0];
+}
+
+/* ==========================================================================
+   タイピング処理
+   1文字ずつ判定し、緑/赤フィードバックを出す。
+   日本語のゆらぎ: 現在セグメントの alts のうち、
+   これまで入力した文字列に前方一致するものが残っていればOKと判定する。
+   ========================================================================== */
+function handleTyping(e) {
+  // 制御キーは無視
+  if (e.key.length !== 1) return;
+  // ゲーム進行に集中させるためスクロール等を防ぐ
+  if (e.key === " ") e.preventDefault();
+
+  const typed = e.key;
+  const seg = state.segments[state.typedIndex];
+  if (!seg) return;
+
+  // 現在のセグメントで、これまで打った文字列 + 今回の文字 に前方一致する候補を探す
+  const soFar = (state.currentAltFilter !== null
+      ? state.currentAltFilter.slice(0, state.segCharIndex)
+      : "") + typed;
+
+  const candidates = seg.alts.filter(alt => alt.startsWith(soFar));
+
+  if (candidates.length > 0) {
+    // --- 正解 ---
+    state.correctChars++;
+    state.segCharIndex++;
+    // 候補を1つに寄せる (表示用。最短一致を採用)
+    state.currentAltFilter = candidates.reduce((a, b) => a.length <= b.length ? a : b);
+
+    // セグメント完了判定: currentAltFilter を打ち切ったら次へ
+    if (state.segCharIndex >= state.currentAltFilter.length) {
+      chosenTexts[state.typedIndex] = state.currentAltFilter;
+      state.typedIndex++;
+      state.segCharIndex = 0;
+      state.currentAltFilter = null;
+
+      // 単語をすべて打ち終えたら次の単語へ
+      if (state.typedIndex >= state.segments.length) {
+        state.wordsCompleted++;
+        chosenTexts.length = 0;
+        nextWord();
+        feedback(true);
+        updateStatus();
+        return;
+      }
+    }
+    feedback(true);
+  } else {
+    // --- ミス ---
+    state.missChars++;
+    feedback(false);
+  }
+
+  renderPrompt();
+  updateStatus();
+}
+
+/* ==========================================================================
+   視覚フィードバック (揺れ + 光)
+   ========================================================================== */
+function feedback(ok) {
+  const app = el.app, glow = el.glow;
+  // 揺れ
+  app.classList.remove("flash-correct", "flash-wrong");
+  void app.offsetWidth; // リフローでアニメーション再実行
+  app.classList.add(ok ? "flash-correct" : "flash-wrong");
+  // 光
+  glow.classList.remove("correct", "wrong", "show");
+  void glow.offsetWidth;
+  glow.classList.add(ok ? "correct" : "wrong", "show");
+}
+
+/* ==========================================================================
+   ステータス更新 (残り時間 / WPM / 正確率)
+   WPM: 標準的に「5文字=1語」として計算する。
+        (正解文字数 / 5) / 経過分
+   ========================================================================== */
+function updateStatus() {
+  el.timeVal.textContent = state.timeLeft;
+  el.timeVal.classList.toggle("low", state.timeLeft <= 10);
+
+  const elapsedSec = GAME_SECONDS - state.timeLeft;
+  const elapsedMin = elapsedSec > 0 ? elapsedSec / 60 : (1 / 60);
+  const wpm = Math.round((state.correctChars / 5) / elapsedMin);
+  el.wpmVal.textContent = isFinite(wpm) ? wpm : 0;
+
+  const total = state.correctChars + state.missChars;
+  const acc = total > 0 ? Math.round((state.correctChars / total) * 100) : 100;
+  el.accVal.textContent = acc + "%";
+}
+
+/* ==========================================================================
+   ゲーム終了 → 結果表示
+   ========================================================================== */
+function endGame() {
+  state.running = false;
+  clearInterval(state.timerId);
+
+  el.startBtn.disabled = false;
+  el.startBtn.textContent = "もう一度 ▶";
+
+  // 最終スコア計算
+  const wpm = Math.round((state.correctChars / 5) / (GAME_SECONDS / 60));
+  const total = state.correctChars + state.missChars;
+  const acc = total > 0 ? Math.round((state.correctChars / total) * 100) : 100;
+
+  const score = { wpm, acc, hit: state.correctChars, miss: state.missChars };
+
+  // ハイスコア比較バナーを作成
+  buildHighscoreBanner(score);
+
+  // 前回・ハイスコア更新
+  lastScore = score;
+  if (wpm > highScore.wpm) { highScore = { wpm, acc }; }
+
+  // 結果画面へ
+  el.rWpm.textContent  = wpm;
+  el.rAcc.textContent  = acc + "%";
+  el.rHit.textContent  = state.correctChars;
+  el.rMiss.textContent = state.missChars;
+
+  el.playArea.classList.add("hidden");
+  el.resultArea.classList.remove("hidden");
+}
+
+/* ハイスコア/前回比較のメッセージを組み立てる */
+function buildHighscoreBanner(score) {
+  let html = "";
+
+  // ハイスコア表示
+  if (highScore.wpm === 0) {
+    html += `<div>🎉 はじめてのプレイ！このスコアがハイスコアです。</div>`;
+  } else {
+    html += `<div>🏆 ハイスコア: <span class="big">${highScore.wpm} WPM</span> (正確率 ${highScore.acc}%)</div>`;
+  }
+
+  // 前回スコアとの比較
+  if (lastScore) {
+    const diff = score.wpm - lastScore.wpm;
+    if (diff > 0) {
+      html += `<div class="up">↑ 前回より +${diff} WPM アップ！</div>`;
+    } else if (diff < 0) {
+      html += `<div class="down">↓ 前回より ${diff} WPM ダウン (前回 ${lastScore.wpm} WPM)</div>`;
+    } else {
+      html += `<div class="down">→ 前回と同じ ${score.wpm} WPM</div>`;
+    }
+  }
+
+  // 今回でハイスコア更新したか
+  if (score.wpm > highScore.wpm && highScore.wpm !== 0) {
+    html += `<div class="up">✨ ハイスコア更新！</div>`;
+  }
+
+  el.highscoreBanner.innerHTML = html;
+}
+
+/* ==========================================================================
+   ユーティリティ
+   ========================================================================== */
+function escapeHtml(s) {
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+}
+
+// 初期表示
+updateStatus();
+</script>
+</body>
+</html>
